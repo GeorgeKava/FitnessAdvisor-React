@@ -1,0 +1,10 @@
+backend/.env
+frontend/.env
+frontend/node_modules
+backend/captured_images
+backend/__pycache__
+__azurite_db_table__.json
+qa.json
+AzuriteConfig
+node_modules
+captured_images
