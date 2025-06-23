@@ -7,6 +7,9 @@ function FitnessAdvisorPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showVideo, setShowVideo] = useState(false);
+  const [gender, setGender] = useState('');
+  const [age, setAge] = useState('');
+  const [weight, setWeight] = useState('');
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -45,6 +48,10 @@ function FitnessAdvisorPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!gender || !age || !weight) {
+      setError('Please fill in all personal details.');
+      return;
+    }
     setLoading(true);
     setError('');
     setRecommendation('');
@@ -52,6 +59,10 @@ function FitnessAdvisorPage() {
     selectedFiles.forEach((file) => {
       formData.append('images', file);
     });
+    formData.append('gender', gender);
+    formData.append('age', age);
+    formData.append('weight', weight);
+
     try {
       const response = await axios.post('/api/fitness_recommendation', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -66,6 +77,11 @@ function FitnessAdvisorPage() {
 
   const handleCaptureAndRecommend = async () => {
     if (!videoRef.current || !canvasRef.current) return;
+
+    if (!gender || !age || !weight) {
+      setError('Please fill in all personal details before capturing.');
+      return;
+    }
 
     const video = videoRef.current;
 
@@ -95,6 +111,10 @@ function FitnessAdvisorPage() {
         }
         const formData = new FormData();
         formData.append('images', blob, 'captured_image.jpg');
+        formData.append('gender', gender);
+        formData.append('age', age);
+        formData.append('weight', weight);
+
         try {
           const response = await axios.post('/api/fitness_recommendation', formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
@@ -113,6 +133,27 @@ function FitnessAdvisorPage() {
   return (
     <div className="container">
       <h2 className="mb-4">Fitness Advisor</h2>
+
+      {/* User Details Form */}
+      <div className="row mb-3">
+        <div className="col-md-4">
+          <label htmlFor="gender" className="form-label">Gender</label>
+          <select id="gender" className="form-select" value={gender} onChange={(e) => setGender(e.target.value)} required>
+            <option value="" disabled>Select...</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div className="col-md-4">
+          <label htmlFor="age" className="form-label">Age</label>
+          <input type="number" id="age" className="form-control" value={age} onChange={(e) => setAge(e.target.value)} placeholder="e.g., 25" required />
+        </div>
+        <div className="col-md-4">
+          <label htmlFor="weight" className="form-label">Weight (lbs)</label>
+          <input type="number" id="weight" className="form-control" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="e.g., 150" required />
+        </div>
+      </div>
 
       {/* Video Feed Section */}
       {showVideo && (

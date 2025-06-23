@@ -31,6 +31,11 @@ def fitness_recommendation():
     logging.debug(f"Request.files: {request.files}")
     logging.debug(f"Request.form: {request.form}")
 
+    gender = request.form.get('gender')
+    age = request.form.get('age')
+    weight = request.form.get('weight')
+    logging.info(f"Received user data: Gender={gender}, Age={age}, Weight={weight}")
+
     images = []
     
     if 'images' in request.files:
@@ -80,7 +85,7 @@ def fitness_recommendation():
     logging.info(f"Processing {len(images)} image(s): {images}")
     
     try:
-        result = get_fitness_recommendation(images)
+        result = get_fitness_recommendation(images, gender, age, weight)
         # ai.py's get_fitness_recommendation returns a string "An error occurred..." on its internal errors.
         # This is currently returned as part of a 200 OK.
         if isinstance(result, str) and "An error occurred" in result:

@@ -118,9 +118,9 @@ def create_index():
     except Exception as e:
         logging.error(f"Failed to create index: {e}")
 
-def get_fitness_recommendation(image_paths):
+def get_fitness_recommendation(image_paths, gender, age, weight):
     """
-    Given a list of image file paths (front, side, back, etc.),
+    Given a list of image file paths and user details,
     use GPT-4o vision to analyze the images and return personalized fitness recommendations.
     """
     encoded_images = []
@@ -133,10 +133,16 @@ def get_fitness_recommendation(image_paths):
             })
 
     prompt = (
-        "You are a fitness advisor. Analyze the provided images of a person from different angles "
-        "(front, side, back, etc.) and provide personalized fitness recommendations. "
-        "Consider posture, body composition, and any visible health indicators. "
-        "Be specific and actionable in your advice."
+        "You are an expert fitness and nutrition advisor. "
+        "Analyze the provided images of a person and consider their personal details "
+        "to provide highly personalized and actionable fitness and nutrition recommendations.\n\n"
+        f"User Details:\n- Gender: {gender}\n- Age: {age}\n- Weight: {weight} lbs\n\n"
+        "Based on the images and the user's details, please analyze their posture, estimated body composition, "
+        "and any visible indicators. Then, provide a comprehensive plan covering:\n"
+        "1.  **Workout Recommendations:** Suggest specific exercises, frequency, and intensity suitable for their profile.\n"
+        "2.  **Nutrition Advice:** Offer dietary guidelines that would complement their fitness goals.\n"
+        "3.  **Lifestyle Tips:** Include advice on posture correction, daily habits, or other relevant areas."
+        "Be specific and actionable in your advice, and present it in a clear, easy-to-read format."
     )
 
     try:
@@ -149,7 +155,7 @@ def get_fitness_recommendation(image_paths):
                     for img in encoded_images
                 ]
             ],
-            max_tokens=512,
+            max_tokens=1024,
         )
         recommendation = response.choices[0].message.content
         return recommendation
