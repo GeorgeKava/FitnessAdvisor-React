@@ -6,6 +6,7 @@ import uuid
 import logging
 from dotenv import load_dotenv
 from ai import get_fitness_recommendation
+from ai_fast import get_fast_fitness_recommendation
 
 app = Flask(__name__)
 CORS(app)
@@ -34,7 +35,9 @@ def fitness_recommendation():
     gender = request.form.get('gender')
     age = request.form.get('age')
     weight = request.form.get('weight')
-    logging.info(f"Received user data: Gender={gender}, Age={age}, Weight={weight}")
+    agent_type = request.form.get('agent_type', 'general')  # Default to 'general' if not provided
+    fast_mode = request.form.get('fast_mode', 'false').lower() == 'true'  # Check for fast mode
+    logging.info(f"Received user data: Gender={gender}, Age={age}, Weight={weight}, Agent={agent_type}, FastMode={fast_mode}")
 
     images = []
     
@@ -85,7 +88,14 @@ def fitness_recommendation():
     logging.info(f"Processing {len(images)} image(s): {images}")
     
     try:
-        result = get_fitness_recommendation(images, gender, age, weight)
+        # Use fast mode for quicker responses
+        if fast_mode:
+            result = get_fast_fitness_recommendation(images, gender, age, weight, agent_type)
+            logging.info("Using fast mode for recommendation")
+        else:
+            result = get_fitness_recommendation(images, gender, age, weight, agent_type)
+            logging.info("Using enhanced mode for recommendation")
+            
         # ai.py's get_fitness_recommendation returns a string "An error occurred..." on its internal errors.
         # This is currently returned as part of a 200 OK.
         if isinstance(result, str) and "An error occurred" in result:

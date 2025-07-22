@@ -8,3 +8,4 @@ qa.json
 AzuriteConfig
 node_modules
 captured_images
+setup_mcp.sh

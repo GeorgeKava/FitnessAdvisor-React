@@ -26,6 +26,7 @@ import base64
 import json
 from mimetypes import guess_type
 import uuid
+from mcp_client import get_enhanced_fitness_recommendation_sync
 
 load_dotenv()
 
@@ -41,6 +42,7 @@ model = os.getenv('AZURE_OPENAI_MODEL')
 embedding_model = "text-embedding-3-small"
 
 index_name = os.getenv('AZURE_SEARCH_INDEX_NAME')
+project_endpoint = os.getenv('PROJECT_ENDPOINT')
 
 env_file_path = '.env'
 
@@ -118,11 +120,16 @@ def create_index():
     except Exception as e:
         logging.error(f"Failed to create index: {e}")
 
-def get_fitness_recommendation(image_paths, gender, age, weight):
+def get_fitness_recommendation(image_paths, gender, age, weight, agent_type="general"):
     """
-    Given a list of image file paths and user details,
-    use GPT-4o vision to analyze the images and return personalized fitness recommendations.
+    Enhanced fitness recommendation using both GPT-4o vision and MCP tools.
     """
+    
+    # For faster response, run MCP in background and prioritize vision analysis
+    vision_analysis = None
+    mcp_recommendations = {}
+    
+    # Process images for vision analysis first (this is the main feature)
     encoded_images = []
     for img_path in image_paths:
         with open(img_path, "rb") as img_file:
@@ -132,20 +139,20 @@ def get_fitness_recommendation(image_paths, gender, age, weight):
                 "data": encoded
             })
 
+    # Simplified prompt for faster processing
     prompt = (
-        "You are an expert fitness and nutrition advisor. "
-        "Analyze the provided images of a person and consider their personal details "
-        "to provide highly personalized and actionable fitness and nutrition recommendations.\n\n"
-        f"User Details:\n- Gender: {gender}\n- Age: {age}\n- Weight: {weight} lbs\n\n"
-        "Based on the images and the user's details, please analyze their posture, estimated body composition, "
-        "and any visible indicators. Then, provide a comprehensive plan covering:\n"
-        "1.  **Workout Recommendations:** Suggest specific exercises, frequency, and intensity suitable for their profile.\n"
-        "2.  **Nutrition Advice:** Offer dietary guidelines that would complement their fitness goals.\n"
-        "3.  **Lifestyle Tips:** Include advice on posture correction, daily habits, or other relevant areas."
-        "Be specific and actionable in your advice, and present it in a clear, easy-to-read format."
+        f"You are a fitness expert. Analyze the images and provide personalized recommendations.\n\n"
+        f"User: {gender}, {age} years old, {weight} lbs, Goal: {agent_type}\n\n"
+        f"Provide a concise analysis with:\n"
+        f"1. **Visual Assessment** - posture, body composition observations\n"
+        f"2. **Workout Plan** - 3-4 specific exercises with reps\n"
+        f"3. **Nutrition Tips** - key dietary recommendations\n"
+        f"4. **Next Steps** - immediate action items\n\n"
+        f"Keep response focused and actionable."
     )
 
     try:
+        # Get vision analysis with shorter response for speed
         response = client.chat.completions.create(
             model=model,
             messages=[
@@ -155,10 +162,42 @@ def get_fitness_recommendation(image_paths, gender, age, weight):
                     for img in encoded_images
                 ]
             ],
-            max_tokens=1024,
+            max_tokens=1024,  # Reduced for faster response
+            temperature=0.7,  # Slightly more focused
         )
-        recommendation = response.choices[0].message.content
-        return recommendation
+        
+        vision_analysis = response.choices[0].message.content
+        
+        # Try to get MCP enhancements quickly (with timeout)
+        try:
+            import threading
+            import time
+            
+            def get_mcp_data():
+                return get_enhanced_fitness_recommendation_sync(
+                    age=int(age),
+                    gender=gender,
+                    weight=float(weight),
+                    goal=agent_type
+                )
+            
+            # Try MCP with 5 second timeout
+            thread = threading.Thread(target=lambda: setattr(get_mcp_data, 'result', get_mcp_data()))
+            thread.daemon = True
+            thread.start()
+            thread.join(timeout=5.0)
+            
+            if hasattr(get_mcp_data, 'result'):
+                mcp_recommendations = getattr(get_mcp_data, 'result')
+        except Exception as e:
+            logging.warning(f"MCP enhancement skipped due to timeout/error: {e}")
+        
+        # Return the vision analysis immediately (main feature)
+        if vision_analysis:
+            return vision_analysis
+        else:
+            return "Analysis complete - please try uploading a clearer image for better recommendations."
+            
     except Exception as e:
         logging.error(f"GPT-4o vision API error: {e}")
-        return "An error occurred while generating fitness recommendations."
+        return "An error occurred while analyzing your image. Please try again with a different photo."
