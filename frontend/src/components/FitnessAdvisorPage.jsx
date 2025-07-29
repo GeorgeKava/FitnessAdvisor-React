@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
-function FitnessAdvisorPage() {
+function FitnessAdvisorPage({ user }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [capturedImages, setCapturedImages] = useState([]); // Store base64 images for display
   const [recommendation, setRecommendation] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -11,12 +13,18 @@ function FitnessAdvisorPage() {
   const [gender, setGender] = useState('');
   const [age, setAge] = useState('');
   const [weight, setWeight] = useState('');
+  const [healthConditions, setHealthConditions] = useState('');
   const [agentType, setAgentType] = useState('general');
   const [fastMode, setFastMode] = useState(true); // Default to fast mode
+  const [useRAG, setUseRAG] = useState(true); // Enable RAG mode to test enhanced system
+  const [useMCP, setUseMCP] = useState(false); // Model Context Protocol mode
+  const [useHybrid, setUseHybrid] = useState(false); // Hybrid RAG + MCP mode
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
+  const [isGeneratingWeeklyPlan, setIsGeneratingWeeklyPlan] = useState(false);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const navigate = useNavigate();
 
   // Load profile data on component mount
   useEffect(() => {
@@ -29,6 +37,7 @@ function FitnessAdvisorPage() {
         if (!gender && profile.sex) setGender(profile.sex);
         if (!age && profile.age) setAge(profile.age);
         if (!weight && profile.weight) setWeight(profile.weight);
+        if (!healthConditions && profile.healthConditions) setHealthConditions(profile.healthConditions);
         
         // Map fitness agent to existing options
         const agentMapping = {
@@ -45,7 +54,7 @@ function FitnessAdvisorPage() {
         }
         
         // Only show profile loaded message if we actually loaded some data
-        if (profile.sex || profile.age || profile.weight || profile.fitnessAgent) {
+        if (profile.sex || profile.age || profile.weight || profile.fitnessAgent || profile.healthConditions) {
           setProfileLoaded(true);
         }
       }
@@ -146,6 +155,14 @@ function FitnessAdvisorPage() {
     }
   };
 
+  const handleHealthConditionsChange = (e) => {
+    const value = e.target.value;
+    setHealthConditions(value);
+    if (value.trim()) {
+      saveProfileData({ healthConditions: value });
+    }
+  };
+
   const handleAgentTypeChange = (e) => {
     const value = e.target.value;
     setAgentType(value);
@@ -170,9 +187,33 @@ function FitnessAdvisorPage() {
       return;
     }
     setLoading(true);
-    setLoadingMessage('Analyzing images and generating recommendations...');
+    
+    // Set appropriate loading message based on mode
+    let loadingMsg = 'Analyzing images and generating recommendations...';
+    if (useHybrid || (useRAG && useMCP)) {
+      loadingMsg = 'Using Full Analysis for comprehensive fitness recommendations (45-60s)...';
+    } else if (fastMode) {
+      loadingMsg = 'Performing quick analysis and generating recommendations...';
+    } else {
+      loadingMsg = 'Performing detailed analysis and generating comprehensive recommendations...';
+    }
+    
+    setLoadingMessage(loadingMsg);
     setError('');
     setRecommendation('');
+    setCapturedImages([]); // Clear previous images
+    
+    // Convert uploaded files to base64 for display
+    const imageDataUrls = [];
+    for (const file of selectedFiles) {
+      const reader = new FileReader();
+      const dataUrl = await new Promise((resolve) => {
+        reader.onload = (e) => resolve(e.target.result);
+        reader.readAsDataURL(file);
+      });
+      imageDataUrls.push(dataUrl);
+    }
+    setCapturedImages(imageDataUrls);
     
     const formData = new FormData();
     selectedFiles.forEach((file) => {
@@ -181,18 +222,63 @@ function FitnessAdvisorPage() {
     formData.append('gender', gender);
     formData.append('age', age);
     formData.append('weight', weight);
+    formData.append('health_conditions', healthConditions);
     formData.append('agent_type', agentType);
     formData.append('fast_mode', fastMode.toString());
+    formData.append('use_rag', useRAG.toString());
+    formData.append('use_mcp', useMCP.toString());
+    formData.append('use_hybrid', (useHybrid || (useRAG && useMCP)).toString());
 
     try {
       const response = await axios.post('/api/fitness_recommendation', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 60000, // 60 second timeout
+        timeout: 60000, // 1 minute timeout for Agentic RAG analysis
       });
       setRecommendation(response.data.recommendation);
+      
+      // Save the recommendation to localStorage with timestamp
+      const recommendationData = {
+        recommendation: response.data.recommendation,
+        timestamp: new Date().toISOString(),
+        capturedImages: capturedImages, // Include images with the recommendation
+        userProfile: {
+          gender,
+          age,
+          weight,
+          healthConditions,
+          agentType
+        },
+        analysisMode: useHybrid || (useRAG && useMCP) ? 'Full Analysis' : 
+                     fastMode ? 'Quick Analysis' : 'Enhanced Analysis',
+        dateCreated: new Date().toLocaleDateString()
+      };
+      
+      // Save to localStorage with user-specific keys
+      if (user && user.email) {
+        const userSpecificLatestKey = `latestFitnessRecommendation_${user.email}`;
+        const userSpecificHistoryKey = `fitnessRecommendationHistory_${user.email}`;
+        
+        localStorage.setItem(userSpecificLatestKey, JSON.stringify(recommendationData));
+        
+        // Also add to recommendation history
+        const history = JSON.parse(localStorage.getItem(userSpecificHistoryKey) || '[]');
+        history.unshift(recommendationData); // Add to beginning of array
+        // Keep only last 10 recommendations
+        if (history.length > 10) {
+          history.splice(10);
+        }
+        localStorage.setItem(userSpecificHistoryKey, JSON.stringify(history));
+      } else {
+        console.warn('No user available, recommendation not saved to localStorage');
+      }
+      
+      // Dispatch custom event to notify other components (like Dashboard) of the update
+      window.dispatchEvent(new CustomEvent('recommendationUpdated', { 
+        detail: recommendationData 
+      }));
     } catch (err) {
       if (err.code === 'ECONNABORTED') {
-        setError('Request timed out. Please try with a smaller image or check your connection.');
+        setError('Request timed out. Full Analysis with MCP can take several minutes. Please try again or switch to Quick Analysis mode.');
       } else {
         setError('Failed to get recommendation. Please try again.');
       }
@@ -222,6 +308,7 @@ function FitnessAdvisorPage() {
     setLoadingMessage('Capturing image...');
     setError('');
     setRecommendation('');
+    setCapturedImages([]); // Clear previous images
 
     // Add a small delay to ensure the frame is current
     setTimeout(async () => {
@@ -239,6 +326,13 @@ function FitnessAdvisorPage() {
           return;
         }
         
+        // Convert captured image to base64 for display
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setCapturedImages([e.target.result]);
+        };
+        reader.readAsDataURL(blob);
+        
         setLoadingMessage('Processing image and generating fitness recommendations...');
         
         const formData = new FormData();
@@ -246,18 +340,63 @@ function FitnessAdvisorPage() {
         formData.append('gender', gender);
         formData.append('age', age);
         formData.append('weight', weight);
+        formData.append('health_conditions', healthConditions);
         formData.append('agent_type', agentType);
         formData.append('fast_mode', fastMode.toString());
+        formData.append('use_rag', useRAG.toString());
+        formData.append('use_mcp', useMCP.toString());
+        formData.append('use_hybrid', (useHybrid || (useRAG && useMCP)).toString());
 
         try {
           const response = await axios.post('/api/fitness_recommendation', formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
-            timeout: 60000, // 60 second timeout
+            timeout: 60000, // 1 minute timeout for Agentic RAG analysis
           });
           setRecommendation(response.data.recommendation);
+          
+          // Save the recommendation to localStorage with timestamp
+          const recommendationData = {
+            recommendation: response.data.recommendation,
+            timestamp: new Date().toISOString(),
+            capturedImages: capturedImages, // Include captured image
+            userProfile: {
+              gender,
+              age,
+              weight,
+              healthConditions,
+              agentType
+            },
+            analysisMode: useHybrid || (useRAG && useMCP) ? 'Full Analysis' : 
+                         fastMode ? 'Quick Analysis' : 'Enhanced Analysis',
+            dateCreated: new Date().toLocaleDateString(),
+            capturedFromCamera: true
+          };
+          
+          // Save to localStorage with user-specific keys
+          if (user && user.email) {
+            const userSpecificLatestKey = `latestFitnessRecommendation_${user.email}`;
+            const userSpecificHistoryKey = `fitnessRecommendationHistory_${user.email}`;
+            
+            localStorage.setItem(userSpecificLatestKey, JSON.stringify(recommendationData));
+            
+            // Also add to recommendation history
+            const history = JSON.parse(localStorage.getItem(userSpecificHistoryKey) || '[]');
+            history.unshift(recommendationData);
+            if (history.length > 10) {
+              history.splice(10);
+            }
+            localStorage.setItem(userSpecificHistoryKey, JSON.stringify(history));
+          } else {
+            console.warn('No user available, recommendation not saved to localStorage');
+          }
+          
+          // Dispatch custom event to notify other components (like Dashboard) of the update
+          window.dispatchEvent(new CustomEvent('recommendationUpdated', { 
+            detail: recommendationData 
+          }));
         } catch (err) {
           if (err.code === 'ECONNABORTED') {
-            setError('Request timed out. Please try again or use a different image.');
+            setError('Request timed out. Full Analysis with MCP can take several minutes. Please try again or switch to Quick Analysis mode.');
           } else {
             setError('Failed to get recommendation from captured image. Please try again.');
           }
@@ -268,6 +407,63 @@ function FitnessAdvisorPage() {
         }
       }, 'image/jpeg', 0.8); // Reduced quality for faster upload
     }, 100); // 100ms delay
+  };
+
+  const generateWeeklyPlan = async () => {
+    if (!recommendation) {
+      alert('Please generate a fitness recommendation first.');
+      return;
+    }
+
+    setIsGeneratingWeeklyPlan(true);
+    
+    try {
+      const userProfile = {
+        gender: gender,
+        age: age,
+        weight: weight,
+        agentType: agentType,
+        healthConditions: healthConditions
+      };
+
+      const response = await fetch('/api/generate-weekly-plan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userProfile: userProfile,
+          baseRecommendation: recommendation
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate weekly plan');
+      }
+
+      const data = await response.json();
+      
+      const weeklyPlanData = {
+        ...data,
+        dateCreated: new Date().toISOString(),
+        userProfile: userProfile
+      };
+      
+      // Save to localStorage
+      if (user && user.email) {
+        const userSpecificWeeklyKey = `weeklyFitnessPlan_${user.email}`;
+        localStorage.setItem(userSpecificWeeklyKey, JSON.stringify(weeklyPlanData));
+      }
+      
+      // Navigate to weekly plan page
+      navigate('/weekly-plan');
+      
+    } catch (error) {
+      console.error('Error generating weekly plan:', error);
+      alert('Failed to generate weekly plan. Please try again.');
+    } finally {
+      setIsGeneratingWeeklyPlan(false);
+    }
   };
 
   return (
@@ -328,10 +524,35 @@ function FitnessAdvisorPage() {
         </div>
       </div>
 
-      {/* Analysis Speed Option */}
+      {/* Health Conditions and Preferences */}
       <div className="row mb-3">
         <div className="col-12">
-          <div className="form-check form-switch">
+          <label htmlFor="healthConditions" className="form-label">
+            <i className="fas fa-heart text-danger me-1"></i>
+            Health Conditions & Exercise Preferences <span className="text-muted">(Optional)</span>
+          </label>
+          <textarea 
+            id="healthConditions" 
+            className="form-control" 
+            value={healthConditions} 
+            onChange={handleHealthConditionsChange}
+            placeholder="e.g., Lower back pain, knee injury, pregnant, beginner to exercise, prefer low-impact workouts, avoid jumping exercises, etc."
+            rows="3"
+          />
+          <div className="form-text">
+            <i className="fas fa-info-circle me-1"></i>
+            Share any health conditions, injuries, physical limitations, or exercise preferences to get safer and more personalized recommendations.
+          </div>
+        </div>
+      </div>
+
+      {/* Analysis Mode Options */}
+      <div className="row mb-3">
+        <div className="col-12">
+          <h6 className="mb-3">Analysis Mode <i className="fas fa-cog text-muted"></i></h6>
+          
+          {/* Fast Mode */}
+          <div className="form-check form-switch mb-2">
             <input 
               className="form-check-input" 
               type="checkbox" 
@@ -340,8 +561,44 @@ function FitnessAdvisorPage() {
               onChange={(e) => setFastMode(e.target.checked)} 
             />
             <label className="form-check-label" htmlFor="fastMode">
-              <strong>Quick Analysis</strong> (Faster response, {fastMode ? '15-30 seconds' : 'detailed analysis, 45-90 seconds'})
+              <strong>Quick Analysis</strong> <span className="text-muted">(15-30 seconds, basic recommendations)</span>
             </label>
+          </div>
+          
+          {/* Full Analysis Mode (formerly Hybrid) */}
+          <div className="form-check form-switch mb-2">
+            <input 
+              className="form-check-input" 
+              type="checkbox" 
+              id="useHybrid" 
+              checked={useHybrid || (useRAG && useMCP)} 
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setUseHybrid(true);
+                  setUseRAG(true);
+                  setUseMCP(true);
+                  setFastMode(false);
+                } else {
+                  setUseHybrid(false);
+                  setUseRAG(false);
+                  setUseMCP(false);
+                }
+              }} 
+            />
+            <label className="form-check-label" htmlFor="useHybrid">
+              <strong>🚀 Full Analysis</strong> <span className="text-muted">(Comprehensive recommendations using all available technologies, 45-60 seconds)</span>
+            </label>
+          </div>
+          
+          {/* Mode explanation */}
+          <div className="alert alert-info py-2 mt-2" role="alert">
+            <i className="fas fa-info-circle me-2"></i>
+            <small>
+              <strong>Tip:</strong> 
+              {(useHybrid || (useRAG && useMCP)) && " 🚀 Full Analysis combines Azure AI Search database insights with structured fitness tools for the most comprehensive recommendations possible!"}
+              {!useHybrid && !useRAG && !useMCP && fastMode && " Quick mode provides fast general recommendations."}
+              {!useHybrid && !useRAG && !useMCP && !fastMode && " Enhanced mode provides detailed analysis with comprehensive recommendations."}
+            </small>
           </div>
         </div>
       </div>
@@ -429,9 +686,136 @@ function FitnessAdvisorPage() {
       )}
       
       {recommendation && (
-        <div className="alert alert-success mt-4">
-          <h5>Personalized Fitness Recommendation:</h5>
-          <div style={{ whiteSpace: 'pre-line' }}>{recommendation}</div>
+        <div className="row mt-4">
+          <div className="col-12">
+            <div className="card border-success">
+              <div className="card-header bg-success text-white">
+                <h5 className="mb-0">
+                  <i className="fas fa-check-circle me-2"></i>
+                  Your Personalized Fitness Analysis
+                </h5>
+              </div>
+              <div className="card-body">
+                <div className="row">
+                  {/* Images Column */}
+                  {capturedImages.length > 0 && (
+                    <div className="col-md-4">
+                      <h6 className="text-primary mb-3">
+                        <i className="fas fa-camera me-2"></i>
+                        Images Analyzed
+                      </h6>
+                      <div className="row">
+                        {capturedImages.map((imageUrl, index) => (
+                          <div key={index} className="col-12 mb-3">
+                            <div className="card">
+                              <img 
+                                src={imageUrl} 
+                                className="card-img-top" 
+                                alt={`Analyzed image ${index + 1}`}
+                                style={{ 
+                                  maxHeight: '200px', 
+                                  objectFit: 'cover',
+                                  borderRadius: '8px'
+                                }}
+                              />
+                              <div className="card-body py-2">
+                                <small className="text-muted">
+                                  <i className="fas fa-eye me-1"></i>
+                                  Image {index + 1} - Analyzed by AI
+                                </small>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Recommendation Column */}
+                  <div className={capturedImages.length > 0 ? "col-md-8" : "col-12"}>
+                    <h6 className="text-success mb-3">
+                      <i className="fas fa-dumbbell me-2"></i>
+                      Comprehensive Fitness Recommendation
+                    </h6>
+                    <div 
+                      className="recommendation-content"
+                      style={{ 
+                        whiteSpace: 'pre-line',
+                        maxHeight: '600px',
+                        overflowY: 'auto',
+                        border: '1px solid #e9ecef',
+                        borderRadius: '8px',
+                        padding: '1rem',
+                        backgroundColor: '#f8f9fa'
+                      }}
+                    >
+                      {recommendation}
+                    </div>
+                    
+                    <div className="mt-3">
+                      <div className="d-flex justify-content-between align-items-start mb-3">
+                        <small className="text-muted">
+                          <i className="fas fa-robot me-1"></i>
+                          Generated by AI Fitness Expert
+                        </small>
+                        <div className="d-flex gap-2">
+                          <button 
+                            className="btn btn-outline-primary btn-sm"
+                            onClick={() => {
+                              navigator.clipboard.writeText(recommendation);
+                              // You could add a toast notification here
+                            }}
+                          >
+                            <i className="fas fa-copy me-1"></i>
+                            Copy
+                          </button>
+                          <button 
+                            className="btn btn-primary btn-sm"
+                            onClick={() => window.open('/', '_self')}
+                          >
+                            <i className="fas fa-tachometer-alt me-1"></i>
+                            View Dashboard
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {/* Weekly Plan Generation */}
+                      <div className="border-top pt-3">
+                        <div className="d-flex justify-content-between align-items-center">
+                          <div>
+                            <h6 className="mb-1 text-success">
+                              <i className="fas fa-calendar-week me-2"></i>
+                              Ready for a Complete Weekly Plan?
+                            </h6>
+                            <small className="text-muted">
+                              Generate a structured 7-day workout schedule based on your recommendation
+                            </small>
+                          </div>
+                          <button 
+                            className="btn btn-success"
+                            onClick={generateWeeklyPlan}
+                            disabled={isGeneratingWeeklyPlan}
+                          >
+                            {isGeneratingWeeklyPlan ? (
+                              <>
+                                <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                                Generating...
+                              </>
+                            ) : (
+                              <>
+                                <i className="fas fa-calendar-plus me-2"></i>
+                                Generate Weekly Plan
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

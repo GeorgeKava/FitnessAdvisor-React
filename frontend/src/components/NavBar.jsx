@@ -26,8 +26,20 @@ function NavBar({ user, onLogout }) {
               <>
                 <li className="nav-item">
                   <Link className="nav-link" to="/">
-                    <i className="fas fa-home me-1"></i>
-                    Home
+                    <i className="fas fa-tachometer-alt me-1"></i>
+                    Dashboard
+                  </Link>
+                </li>
+                <li className="nav-item">
+                  <Link className="nav-link" to="/fitness-advisor">
+                    <i className="fas fa-dumbbell me-1"></i>
+                    AI Advisor
+                  </Link>
+                </li>
+                <li className="nav-item">
+                  <Link className="nav-link" to="/weekly-plan">
+                    <i className="fas fa-calendar-week me-1"></i>
+                    Weekly Plan
                   </Link>
                 </li>
                 <li className="nav-item">

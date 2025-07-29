@@ -21,6 +21,7 @@ from azure.core.credentials import AzureKeyCredential
 from openai import AzureOpenAI
 import os
 import logging
+import threading
 from dotenv import load_dotenv, set_key
 import base64
 import json
@@ -31,7 +32,7 @@ from mcp_client import get_enhanced_fitness_recommendation_sync
 load_dotenv()
 
 search_service_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
-search_api_key = os.getenv("AZURE_SEARCH_KEY")
+search_api_key = os.getenv("AZURE_SEARCH_ADMIN_KEY") or os.getenv("AZURE_SEARCH_KEY")
 
 
 azure_endpoint = os.getenv("AZURE_OPENAI_API_ENDPOINT")
@@ -58,16 +59,26 @@ embedding_client = AzureOpenAI(
     base_url=f"{azure_endpoint}/openai/deployments/{embedding_model}",
 )
 
-search_client = SearchClient(
-    endpoint=search_service_endpoint,
-    index_name=index_name,
-    credential=AzureKeyCredential(search_api_key)
-)
+search_client = None
+index_client = None
 
-index_client = SearchIndexClient(
-    endpoint=search_service_endpoint,
-    credential=AzureKeyCredential(search_api_key)
-)
+# Only initialize search clients if credentials are available
+if search_service_endpoint and search_api_key:
+    try:
+        search_client = SearchClient(
+            endpoint=search_service_endpoint,
+            index_name=index_name,
+            credential=AzureKeyCredential(search_api_key)
+        )
+
+        index_client = SearchIndexClient(
+            endpoint=search_service_endpoint,
+            credential=AzureKeyCredential(search_api_key)
+        )
+    except Exception as e:
+        print(f"Warning: Could not initialize Azure Search clients: {e}")
+        search_client = None
+        index_client = None
 
 def create_vector_search():
     vector_search = VectorSearch(
@@ -120,7 +131,7 @@ def create_index():
     except Exception as e:
         logging.error(f"Failed to create index: {e}")
 
-def get_fitness_recommendation(image_paths, gender, age, weight, agent_type="general"):
+def get_fitness_recommendation(image_paths, gender, age, weight, agent_type="general", health_conditions=""):
     """
     Enhanced fitness recommendation using both GPT-4o vision and MCP tools.
     """
@@ -139,17 +150,66 @@ def get_fitness_recommendation(image_paths, gender, age, weight, agent_type="gen
                 "data": encoded
             })
 
-    # Simplified prompt for faster processing
-    prompt = (
-        f"You are a fitness expert. Analyze the images and provide personalized recommendations.\n\n"
-        f"User: {gender}, {age} years old, {weight} lbs, Goal: {agent_type}\n\n"
-        f"Provide a concise analysis with:\n"
-        f"1. **Visual Assessment** - posture, body composition observations\n"
-        f"2. **Workout Plan** - 3-4 specific exercises with reps\n"
-        f"3. **Nutrition Tips** - key dietary recommendations\n"
-        f"4. **Next Steps** - immediate action items\n\n"
-        f"Keep response focused and actionable."
-    )
+    # Enhanced prompt for comprehensive fitness analysis
+    user_info = f"User: {gender}, {age} years old, {weight} lbs, Goal: {agent_type}"
+    if health_conditions.strip():
+        user_info += f"\nHealth/Exercise Notes: {health_conditions}"
+    
+    prompt = f"""You are a professional fitness expert and certified personal trainer. Analyze the uploaded images and provide a comprehensive personalized fitness assessment and recommendations.
+
+USER PROFILE:
+{user_info}
+
+COMPREHENSIVE ANALYSIS REQUIRED:
+
+## 1. **DETAILED VISUAL ASSESSMENT**
+- **Posture Analysis**: Examine posture, alignment, any visible imbalances
+- **Body Composition**: Observable muscle development, body type, proportions
+- **Physical Condition**: Overall fitness level based on visual cues
+- **Form Analysis**: If movement/exercise is shown, analyze technique and form
+- **Environment**: Available equipment, space, setting for exercise recommendations
+
+## 2. **WEEKLY EXERCISE STRUCTURE** (Provide 7-day breakdown)
+**MONDAY - Upper Body Focus:**
+- 3-4 specific exercises with sets/reps (e.g., "3 sets of 8-12 push-ups")
+- Target: {agent_type} goals
+
+**TUESDAY - Cardiovascular Training:**
+- Cardio recommendations with duration
+- Intensity guidelines
+
+**WEDNESDAY - Lower Body & Core:**
+- 3-4 specific exercises with sets/reps
+- Core strengthening focus
+
+**THURSDAY - Active Recovery/Flexibility:**
+- Stretching routine or light activity
+- Recovery recommendations
+
+**FRIDAY - Full Body Circuit:**
+- Combined movements for {agent_type}
+- Challenge progression
+
+**SATURDAY - Goal-Specific Training:**
+- Specialized workout for {agent_type} objectives
+- Equipment-based or bodyweight options
+
+**SUNDAY - Rest or Light Activity:**
+- Optional gentle movement
+- Recovery planning
+
+## 3. **NUTRITION GUIDANCE**
+- Meal timing recommendations
+- Hydration guidelines
+- Supplements if appropriate for {agent_type}
+
+## 4. **PROGRESS TRACKING & NEXT STEPS**
+- Key metrics to monitor
+- When to progress exercises
+- Signs of improvement to watch for
+
+**IMPORTANT**: Tailor ALL recommendations specifically for {agent_type} goals and consider any health conditions mentioned. Provide specific, actionable advice that can be implemented immediately.
+{' CRITICAL: Address any health conditions/limitations mentioned above in all recommendations.' if health_conditions.strip() else ''}"""
 
     try:
         # Get vision analysis with shorter response for speed
@@ -162,7 +222,7 @@ def get_fitness_recommendation(image_paths, gender, age, weight, agent_type="gen
                     for img in encoded_images
                 ]
             ],
-            max_tokens=1024,  # Reduced for faster response
+            max_tokens=2500,  # Increased for comprehensive weekly response
             temperature=0.7,  # Slightly more focused
         )
         
@@ -201,3 +261,1211 @@ def get_fitness_recommendation(image_paths, gender, age, weight, agent_type="gen
     except Exception as e:
         logging.error(f"GPT-4o vision API error: {e}")
         return "An error occurred while analyzing your image. Please try again with a different photo."
+
+def normalize_weekly_plan_structure(plan):
+    """
+    Ensure all days in the weekly plan have the correct structure
+    """
+    if not plan or 'dailyPlans' not in plan:
+        return plan
+    
+    for day, day_data in plan['dailyPlans'].items():
+        if day_data:
+            # Ensure exercises is always a list
+            if 'exercises' not in day_data:
+                day_data['exercises'] = []
+            elif day_data['exercises'] is None:
+                day_data['exercises'] = []
+            
+            # Ensure goals is always a list
+            if 'goals' not in day_data:
+                day_data['goals'] = []
+            elif day_data['goals'] is None:
+                day_data['goals'] = []
+            
+            # Ensure activities is properly handled based on rest day status
+            is_rest_day = day_data.get('isRestDay', False)
+            if is_rest_day:
+                if 'activities' not in day_data:
+                    day_data['activities'] = []
+                elif day_data['activities'] is None:
+                    day_data['activities'] = []
+            else:
+                # Non-rest days should have activities as None or not present
+                if 'activities' not in day_data:
+                    day_data['activities'] = None
+            
+            # Ensure other required fields exist
+            if 'focus' not in day_data:
+                day_data['focus'] = ''
+            if 'notes' not in day_data:
+                day_data['notes'] = ''
+            if 'isRestDay' not in day_data:
+                day_data['isRestDay'] = False
+    
+    return plan
+
+def generate_weekly_fitness_plan(user_profile, base_recommendation):
+    """
+    Generate a comprehensive weekly fitness plan based on user profile and base recommendation
+    """
+    
+    # Extract user details
+    gender = user_profile.get('gender', 'Unknown')
+    age = user_profile.get('age', 'Unknown') 
+    weight = user_profile.get('weight', 'Unknown')
+    agent_type = user_profile.get('agentType', 'general')
+    health_conditions = user_profile.get('healthConditions', '')
+    
+    # Create comprehensive prompt for weekly plan generation
+    user_info = f"User: {gender}, {age} years old, {weight} lbs, Goal: {agent_type}"
+    if health_conditions.strip():
+        user_info += f"\nHealth/Exercise Notes: {health_conditions}"
+    
+    # Define rest day strategy based on agent type
+    rest_days_info = {
+        'weight_loss': '1 rest day (recommend Thursday or Sunday)',
+        'cardio': '1 rest day (recommend Thursday or Sunday)', 
+        'muscle_gain': '1-2 rest days (recommend Wednesday and Sunday)',
+        'strength': '1-2 rest days (recommend Wednesday and Sunday)',
+        'general': '1-2 rest days (recommend Wednesday and Sunday)'
+    }
+    
+    prompt = f"""You are a professional fitness trainer creating a balanced 7-day weekly fitness plan.
+
+{user_info}
+
+Based on the following recommendation:
+{base_recommendation[:800]}
+
+Create a BALANCED weekly plan that distributes exercises evenly across the week. Follow this EXACT structure:
+
+WEEKLY_OVERVIEW: Write a clear, motivational 2-3 sentence summary (under 200 characters) about this week's main training focus for {agent_type} goals. Avoid listing specific exercises - focus on the overall theme and benefits.
+
+WEEKLY_GOALS:
+- Goal 1 specific to {agent_type} objectives
+- Goal 2 specific to {agent_type} objectives  
+- Goal 3 specific to {agent_type} objectives
+
+MONDAY_UPPER_BODY:
+EXERCISES:
+- Exercise 1 (specific sets/reps like "3 sets of 10 push-ups")
+- Exercise 2 (specific sets/reps like "2 sets of 15 arm circles")
+- Exercise 3 (specific sets/reps like "3 sets of 8 tricep dips")
+GOALS:
+- Build upper body strength
+- Improve posture and alignment
+NOTES: Focus on proper form over speed
+
+TUESDAY_CARDIO:
+EXERCISES:
+- Exercise 1 (specific duration like "20 minutes brisk walking")
+- Exercise 2 (specific sets/reps like "3 sets of 30-second jumping jacks")
+- Exercise 3 (specific sets/reps like "2 sets of 15 high knees")
+GOALS:
+- Improve cardiovascular endurance
+- Burn calories effectively
+NOTES: Monitor heart rate and stay hydrated
+
+WEDNESDAY_LOWER_BODY:
+EXERCISES:
+- Exercise 1 (specific sets/reps like "3 sets of 12 squats")
+- Exercise 2 (specific sets/reps like "3 sets of 10 lunges each leg")
+- Exercise 3 (specific sets/reps like "2 sets of 20 calf raises")
+GOALS:
+- Strengthen leg muscles
+- Improve balance and stability
+NOTES: Keep knees aligned with toes
+
+THURSDAY_ACTIVE_RECOVERY:
+ACTIVITIES:
+- Light stretching routine (10-15 minutes)
+- Gentle walking (15-20 minutes)
+- Deep breathing exercises (5 minutes)
+GOALS:
+- Promote muscle recovery
+- Maintain daily movement
+NOTES: Keep intensity very low and relaxed
+
+FRIDAY_FULL_BODY:
+EXERCISES:
+- Exercise 1 (specific sets/reps like "2 sets of 8 modified burpees")
+- Exercise 2 (specific sets/reps like "3 sets of 10 mountain climbers")
+- Exercise 3 (specific sets/reps like "2 sets of 12 wall sits")
+GOALS:
+- Combine strength and cardio
+- Work multiple muscle groups
+NOTES: Take breaks as needed between exercises
+
+SATURDAY_FLEXIBILITY:
+EXERCISES:
+- Exercise 1 (specific time like "5 minutes dynamic stretching")
+- Exercise 2 (specific time like "10 minutes yoga flow")
+- Exercise 3 (specific time like "5 minutes static stretching")
+GOALS:
+- Improve flexibility and mobility
+- Reduce muscle tension
+NOTES: Hold stretches for 20-30 seconds
+
+SUNDAY_REST:
+ACTIVITIES:
+- Optional gentle yoga (15-20 minutes)
+- Light household activities
+- Meal preparation for the week
+GOALS:
+- Complete rest and recovery
+- Prepare for upcoming week
+NOTES: Complete rest is also perfectly fine
+
+CRITICAL REQUIREMENTS:
+1. Each workout day must have exactly 2-4 exercises (not more, not less)
+2. Each exercise must include specific sets/reps or duration
+3. Rest days should have 1-3 gentle activities
+4. Use {rest_days_info.get(agent_type, '1-2 rest days')} but allow flexibility
+5. Make exercises suitable for {agent_type} goals
+6. Consider health conditions: {health_conditions if health_conditions.strip() else "None mentioned"}
+7. Keep the plan realistic and achievable for beginners to intermediate
+
+Follow this structure EXACTLY with proper EXERCISES/ACTIVITIES sections."""
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": prompt}
+            ],
+            max_tokens=3000,
+            temperature=0.3  # Lower temperature for more consistent formatting
+        )
+        
+        weekly_plan_text = response.choices[0].message.content
+        
+        # Parse the response into structured format
+        parsed_plan = parse_weekly_plan_response_improved(weekly_plan_text, agent_type)
+        
+        # Normalize the plan structure to ensure consistency
+        parsed_plan = normalize_weekly_plan_structure(parsed_plan)
+        
+        # Validate the plan has balanced content
+        if not validate_weekly_plan(parsed_plan):
+            logging.warning("AI generated unbalanced plan, using fallback")
+            fallback_plan = get_fallback_weekly_plan(agent_type)
+            return normalize_weekly_plan_structure(fallback_plan)
+        
+        return parsed_plan
+        
+    except Exception as e:
+        logging.error(f"Error generating weekly plan: {e}")
+        # Return fallback plan based on agent type
+        fallback_plan = get_fallback_weekly_plan(agent_type)
+        return normalize_weekly_plan_structure(fallback_plan)
+
+def parse_weekly_plan_response_improved(plan_text, agent_type):
+    """
+    Improved parsing function that's more robust and handles the new format
+    """
+    
+    # Initialize the plan structure
+    parsed_plan = {
+        'weeklyOverview': '',
+        'weeklyGoals': [],
+        'dailyPlans': {}
+    }
+    
+    lines = plan_text.split('\n')
+    current_day = None
+    current_section = None
+    current_day_data = {}
+    
+    day_mapping = {
+        'MONDAY': 'Monday',
+        'TUESDAY': 'Tuesday', 
+        'WEDNESDAY': 'Wednesday',
+        'THURSDAY': 'Thursday',
+        'FRIDAY': 'Friday',
+        'SATURDAY': 'Saturday',
+        'SUNDAY': 'Sunday'
+    }
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Extract weekly overview
+        if 'WEEKLY_OVERVIEW:' in line.upper():
+            current_section = 'overview'
+            content = line.split(':', 1)[1].strip() if ':' in line else ''
+            if content:
+                parsed_plan['weeklyOverview'] = content
+            continue
+        elif current_section == 'overview' and not line.upper().startswith(('WEEKLY_GOALS', 'MONDAY', 'TUESDAY')):
+            if not parsed_plan['weeklyOverview']:
+                parsed_plan['weeklyOverview'] = line
+            else:
+                parsed_plan['weeklyOverview'] += ' ' + line
+            continue
+            
+        # Extract weekly goals
+        elif 'WEEKLY_GOALS:' in line.upper():
+            current_section = 'goals'
+            continue
+        elif current_section == 'goals' and line.startswith('-'):
+            parsed_plan['weeklyGoals'].append(line[1:].strip())
+            continue
+        elif current_section == 'goals' and any(day in line.upper() for day in day_mapping.keys()):
+            current_section = None
+            
+        # Check for daily sections
+        day_found = None
+        for day_key, day_name in day_mapping.items():
+            if day_key in line.upper() and ('_' in line or ':' in line):
+                day_found = day_name
+                break
+                
+        if day_found:
+            # Save previous day if exists
+            if current_day and current_day_data:
+                parsed_plan['dailyPlans'][current_day] = current_day_data
+            
+            # Start new day
+            current_day = day_found
+            current_section = 'day'
+            
+            # Check if it's a rest day
+            is_rest_day = 'REST' in line.upper() or 'RECOVERY' in line.upper() or 'ACTIVE_RECOVERY' in line.upper()
+            
+            current_day_data = {
+                'exercises': [],
+                'goals': [],
+                'focus': '',
+                'notes': '',
+                'isRestDay': is_rest_day,
+                'activities': [] if is_rest_day else None
+            }
+            
+            # Extract focus from line
+            if '_' in line:
+                focus_part = line.split('_', 1)[1].replace(':', '').strip()
+                current_day_data['focus'] = focus_part.replace('_', ' ').title()
+            elif '-' in line:
+                focus_part = line.split('-', 1)[1].strip().rstrip(':')
+                current_day_data['focus'] = focus_part
+            
+            continue
+    
+        # Extract daily content
+        if current_day and current_section == 'day':
+            if 'EXERCISES:' in line.upper():
+                current_section = 'exercises'
+                continue
+            elif 'ACTIVITIES:' in line.upper():
+                current_section = 'activities'
+                continue
+            elif 'GOALS:' in line.upper():
+                current_section = 'day_goals'
+                continue
+            elif 'NOTES:' in line.upper():
+                current_section = 'notes'
+                notes_content = line.split(':', 1)[1].strip() if ':' in line else ''
+                if notes_content:
+                    current_day_data['notes'] = notes_content
+                continue
+            elif line.startswith('-'):
+                if current_section == 'exercises':
+                    current_day_data['exercises'].append(line[1:].strip())
+                elif current_section == 'activities':
+                    if current_day_data['activities'] is not None:
+                        current_day_data['activities'].append(line[1:].strip())
+                elif current_section == 'day_goals':
+                    current_day_data['goals'].append(line[1:].strip())
+    
+    # Don't forget the last day
+    if current_day and current_day_data:
+        parsed_plan['dailyPlans'][current_day] = current_day_data
+    
+    # Add fallback content if parsing didn't capture enough
+    if len(parsed_plan['weeklyGoals']) == 0:
+        parsed_plan['weeklyGoals'] = get_weekly_goals_for_agent(agent_type)
+    
+    if not parsed_plan['weeklyOverview']:
+        parsed_plan['weeklyOverview'] = f"A comprehensive 7-day fitness plan designed for {agent_type.replace('_', ' ')} goals, balancing training intensity with adequate recovery."
+    else:
+        # Ensure the overview is concise and readable (max 250 characters)
+        overview = parsed_plan['weeklyOverview']
+        if len(overview) > 250:
+            # Find the end of the second sentence or truncate at 250 chars
+            sentences = overview.split('. ')
+            if len(sentences) >= 2:
+                parsed_plan['weeklyOverview'] = '. '.join(sentences[:2]) + '.'
+            else:
+                parsed_plan['weeklyOverview'] = overview[:247] + '...'
+    
+    # Ensure all 7 days are present with fallbacks
+    if len(parsed_plan['dailyPlans']) < 7:
+        fallback_plans = get_fallback_daily_plans(agent_type)
+        for day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']:
+            if day not in parsed_plan['dailyPlans']:
+                parsed_plan['dailyPlans'][day] = fallback_plans.get(day, {
+                    'exercises': ['Light bodyweight movement', 'Gentle stretching routine', '15-20 minutes walking'],
+                    'goals': ['Stay active', 'Listen to your body'],
+                    'focus': 'Active Recovery',
+                    'notes': 'Adjust intensity based on how you feel',
+                    'isRestDay': False,
+                    'activities': None
+                })
+    
+    # Ensure all existing days have the required structure
+    for day, day_data in parsed_plan['dailyPlans'].items():
+        if day_data:
+            # Ensure exercises is always a list
+            if 'exercises' not in day_data or day_data['exercises'] is None:
+                day_data['exercises'] = []
+            
+            # Ensure goals is always a list
+            if 'goals' not in day_data or day_data['goals'] is None:
+                day_data['goals'] = []
+            
+            # Ensure activities is properly handled for rest days
+            if day_data.get('isRestDay'):
+                if 'activities' not in day_data or day_data['activities'] is None:
+                    day_data['activities'] = []
+            else:
+                if 'activities' not in day_data:
+                    day_data['activities'] = None
+            
+            # Ensure other required fields exist
+            if 'focus' not in day_data:
+                day_data['focus'] = ''
+            if 'notes' not in day_data:
+                day_data['notes'] = ''
+            if 'isRestDay' not in day_data:
+                day_data['isRestDay'] = False
+    
+    return parsed_plan
+
+def validate_weekly_plan(plan):
+    """
+    Validate that the weekly plan is balanced and complete with more realistic criteria
+    """
+    if not plan or 'dailyPlans' not in plan:
+        return False
+    
+    daily_plans = plan['dailyPlans']
+    
+    # Check that we have 7 days
+    if len(daily_plans) != 7:
+        return False
+    
+    # Check each day has content
+    total_exercises_week = 0
+    days_with_content = 0
+    rest_days = 0
+    workout_days_with_content = 0
+    
+    for day, day_data in daily_plans.items():
+        if not day_data:
+            continue
+            
+        # Safely get exercises and activities with proper None handling
+        exercises = day_data.get('exercises') or []
+        activities = day_data.get('activities') or []
+        
+        # Count exercises/activities
+        exercise_count = len(exercises) if exercises is not None else 0
+        activity_count = len(activities) if activities is not None else 0
+        
+        if day_data.get('isRestDay'):
+            rest_days += 1
+            # Rest days need at least 1 activity (was 2, too strict)
+            if activity_count >= 1:
+                days_with_content += 1
+        else:
+            # Workout days need at least 2 exercises (was 3, too strict)
+            if exercise_count >= 2:
+                days_with_content += 1
+                workout_days_with_content += 1
+                total_exercises_week += exercise_count
+    
+    # Relaxed validation rules:
+    # 1. At least 4 days should have meaningful content (was 5)
+    # 2. Should have 1-3 rest days (was 1-2, allow more flexibility)
+    # 3. At least 3 workout days should have content (realistic minimum)
+    # 4. No single day should have more than 10 exercises (was 8, allow more)
+    # 5. Total exercises for the week should be reasonable (10-40, was 15-35)
+    
+    if days_with_content < 4:
+        return False
+    
+    if rest_days < 1 or rest_days > 3:
+        return False
+    
+    if workout_days_with_content < 3:
+        return False
+    
+    # Check for exercise dumping (one day having too many)
+    for day, day_data in daily_plans.items():
+        if not day_data or day_data.get('isRestDay'):
+            continue
+        exercises = day_data.get('exercises') or [] if day_data else []
+        exercise_count = len(exercises) if exercises is not None else 0
+        if exercise_count > 10:  # Allow up to 10 exercises per day
+            return False
+    
+    # More flexible total exercise range
+    if total_exercises_week < 10 or total_exercises_week > 40:
+        return False
+    
+    return True
+
+def parse_weekly_plan_response(plan_text, agent_type):
+    """
+    Parse the AI response into a structured weekly plan format
+    """
+    
+    days_of_week = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']
+    
+    # Initialize the plan structure
+    parsed_plan = {
+        'weeklyOverview': '',
+        'weeklyGoals': [],
+        'dailyPlans': {}
+    }
+    
+    # Split by sections and process
+    sections = plan_text.split('**')
+    
+    current_section = None
+    current_day = None
+    current_day_data = {}
+    
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+            
+        # Check for weekly overview
+        if 'WEEKLY OVERVIEW' in section.upper():
+            current_section = 'overview'
+            # Extract content after the header
+            content = section.split(':')[-1].strip()
+            if content:
+                parsed_plan['weeklyOverview'] = content
+            continue
+            
+        # Check for weekly goals
+        elif 'WEEKLY GOALS' in section.upper():
+            current_section = 'goals'
+            # Extract goals from the content after this section
+            continue
+            
+        # Check for daily sections
+        day_found = None
+        for day in days_of_week:
+            if day in section.upper() and ('-' in section or ':' in section):
+                day_found = day.capitalize()
+                break
+                
+        if day_found:
+            # Save previous day if exists
+            if current_day and current_day_data:
+                parsed_plan['dailyPlans'][current_day] = current_day_data
+            
+            # Start new day
+            current_day = day_found
+            current_section = 'day'
+            
+            # Check if it's a rest day
+            is_rest_day = 'REST DAY' in section.upper() or 'RECOVERY' in section.upper()
+            
+            current_day_data = {
+                'exercises': [],
+                'goals': [],
+                'focus': '',
+                'notes': '',
+                'isRestDay': is_rest_day,
+                'activities': [] if is_rest_day else None
+            }
+            
+            # Extract focus from day header
+            if '-' in section:
+                focus_part = section.split('-', 1)[1].strip().rstrip(':')
+                current_day_data['focus'] = focus_part
+            
+            continue
+    
+    # Process the remaining content line by line for better extraction
+    lines = plan_text.split('\n')
+    
+    in_goals_section = False
+    in_exercises_section = False
+    in_daily_goals_section = False
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Weekly goals extraction
+        if 'WEEKLY GOALS:' in line.upper():
+            in_goals_section = True
+            continue
+        elif in_goals_section and line.startswith('-'):
+            parsed_plan['weeklyGoals'].append(line[1:].strip())
+            continue
+        elif in_goals_section and any(day in line.upper() for day in days_of_week):
+            in_goals_section = False
+            
+        # Extract weekly overview if not found in sections
+        if not parsed_plan['weeklyOverview'] and 'WEEKLY OVERVIEW:' in line.upper():
+            # Look for content in the next lines
+            continue
+        elif not parsed_plan['weeklyOverview'] and not line.startswith('**') and not line.startswith('-') and len(line) > 20:
+            if not any(keyword in line.upper() for keyword in ['WEEKLY GOALS', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']):
+                parsed_plan['weeklyOverview'] = line
+                continue
+                
+        # Daily content extraction
+        if current_day:
+            if 'EXERCISES:' in line.upper():
+                in_exercises_section = True
+                in_daily_goals_section = False
+                continue
+            elif 'GOALS:' in line.upper():
+                in_exercises_section = False
+                in_daily_goals_section = True
+                continue
+            elif 'NOTES:' in line.upper():
+                in_exercises_section = False
+                in_daily_goals_section = False
+                notes_content = line.split(':', 1)[1].strip() if ':' in line else ''
+                if notes_content:
+                    current_day_data['notes'] = notes_content
+                continue
+            elif line.startswith('-') and in_exercises_section:
+                exercise = line[1:].strip()
+                if current_day_data['isRestDay']:
+                    current_day_data['activities'].append(exercise)
+                else:
+                    current_day_data['exercises'].append(exercise)
+            elif line.startswith('-') and in_daily_goals_section:
+                current_day_data['goals'].append(line[1:].strip())
+    
+    # Don't forget the last day
+    if current_day and current_day_data:
+        parsed_plan['dailyPlans'][current_day] = current_day_data
+    
+    # Add fallback content if parsing didn't capture enough
+    if len(parsed_plan['weeklyGoals']) == 0:
+        parsed_plan['weeklyGoals'] = get_weekly_goals_for_agent(agent_type)
+    
+    if not parsed_plan['weeklyOverview']:
+        parsed_plan['weeklyOverview'] = f"A comprehensive 7-day fitness plan designed for {agent_type.replace('_', ' ')} goals, balancing training intensity with adequate recovery."
+    
+    if len(parsed_plan['dailyPlans']) < 7:
+        # Fill in missing days with fallbacks
+        fallback_plans = get_fallback_daily_plans(agent_type)
+        for day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']:
+            if day not in parsed_plan['dailyPlans']:
+                parsed_plan['dailyPlans'][day] = fallback_plans.get(day, {
+                    'exercises': ['Light activity as tolerated'],
+                    'goals': ['Listen to your body', 'Stay active'],
+                    'focus': 'Flexible training',
+                    'notes': 'Adjust based on how you feel',
+                    'isRestDay': False
+                })
+    
+    return parsed_plan
+
+def get_weekly_goals_for_agent(agent_type):
+    """Get appropriate weekly goals based on agent type"""
+    goals_map = {
+        'weight_loss': [
+            'Create a sustainable calorie deficit through exercise and activity',
+            'Build lean muscle to boost metabolism',
+            'Establish consistent daily movement habits',
+            'Focus on progressive cardio endurance improvements'
+        ],
+        'muscle_gain': [
+            'Progressive overload in strength training exercises',
+            'Maintain adequate protein intake and recovery',
+            'Build functional strength across all muscle groups',
+            'Achieve consistent training intensity with proper form'
+        ],
+        'cardio': [
+            'Improve cardiovascular endurance and VO2 max',
+            'Build aerobic capacity through varied cardio training',
+            'Establish sustainable exercise intensity zones',
+            'Enhance overall stamina and heart health'
+        ],
+        'strength': [
+            'Increase maximal strength in compound movements',
+            'Perfect lifting technique and movement patterns',
+            'Build functional strength for daily activities',
+            'Achieve progressive strength gains week over week'
+        ],
+        'general': [
+            'Establish consistent exercise habits and routine',
+            'Improve overall fitness and energy levels',
+            'Build balanced strength, cardio, and flexibility',
+            'Create sustainable long-term wellness practices'
+        ]
+    }
+    
+    return goals_map.get(agent_type, goals_map['general'])
+
+def get_fallback_daily_plans(agent_type):
+    """Get balanced fallback daily plans based on agent type when parsing fails"""
+    
+    if agent_type == 'weight_loss':
+        return {
+            'Monday': {
+                'focus': 'Full Body Circuit Training',
+                'exercises': [
+                    '3 sets of 12-15 bodyweight squats',
+                    '3 sets of 8-12 push-ups (modified as needed)',
+                    '3 sets of 30-45 second planks',
+                    '20 minutes brisk walking'
+                ],
+                'goals': [
+                    'Burn calories through compound movements',
+                    'Establish weekly workout routine'
+                ],
+                'notes': 'Start the week strong but listen to your body',
+                'isRestDay': False
+            },
+            'Tuesday': {
+                'focus': 'Cardio Endurance',
+                'exercises': [
+                    '25-30 minutes steady-state cardio',
+                    '3 sets of 15 jumping jacks',
+                    '3 sets of 20 high knees',
+                    '10 minutes stretching'
+                ],
+                'goals': [
+                    'Improve cardiovascular fitness',
+                    'Burn maximum calories'
+                ],
+                'notes': 'Maintain conversational pace for steady cardio',
+                'isRestDay': False
+            },
+            'Wednesday': {
+                'focus': 'Strength & Core',
+                'exercises': [
+                    '3 sets of 10 wall push-ups',
+                    '3 sets of 45-60 second wall sits',
+                    '3 sets of 15 crunches',
+                    '15 minutes walking'
+                ],
+                'goals': [
+                    'Build lean muscle mass',
+                    'Strengthen core stability'
+                ],
+                'notes': 'Focus on controlled movements',
+                'isRestDay': False
+            },
+            'Thursday': {
+                'focus': 'Active Recovery',
+                'activities': [
+                    '20-30 minutes gentle walking',
+                    '10 minutes stretching routine',
+                    'Light household activities',
+                    'Deep breathing exercises'
+                ],
+                'goals': [
+                    'Promote muscle recovery',
+                    'Maintain daily movement'
+                ],
+                'notes': 'Keep moving but at a relaxed pace',
+                'isRestDay': True
+            },
+            'Friday': {
+                'focus': 'High-Intensity Fat Burning',
+                'exercises': [
+                    '3 sets of 8 burpees (modified as needed)',
+                    '3 sets of 20 mountain climbers',
+                    '3 sets of 15 squat jumps',
+                    '20 minutes interval walking'
+                ],
+                'goals': [
+                    'Maximize calorie burn',
+                    'Challenge cardiovascular system'
+                ],
+                'notes': 'Push yourself but maintain proper form',
+                'isRestDay': False
+            },
+            'Saturday': {
+                'focus': 'Fun Active Day',
+                'exercises': [
+                    '45-60 minutes recreational activity',
+                    'Dancing, hiking, or sports',
+                    '15 minutes stretching',
+                    'Active family time'
+                ],
+                'goals': [
+                    'Enjoy physical activity',
+                    'Stay active socially'
+                ],
+                'notes': 'Make fitness fun and sustainable',
+                'isRestDay': False
+            },
+            'Sunday': {
+                'focus': 'Recovery & Planning',
+                'activities': [
+                    '30 minutes gentle yoga',
+                    '20 minutes nature walk',
+                    'Meal prep for the week',
+                    'Goal setting and reflection'
+                ],
+                'goals': [
+                    'Prepare for the upcoming week',
+                    'Promote full body recovery'
+                ],
+                'notes': 'Focus on rest and preparation',
+                'isRestDay': True
+            }
+        }
+    
+    elif agent_type == 'muscle_gain':
+        return {
+            'Monday': {
+                'focus': 'Upper Body Strength',
+                'exercises': [
+                    '4 sets of 6-8 push-ups',
+                    '3 sets of 8-10 tricep dips',
+                    '3 sets of 12 resistance band rows',
+                    '3 sets of 10 shoulder presses'
+                ],
+                'goals': [
+                    'Build upper body muscle mass',
+                    'Focus on progressive overload'
+                ],
+                'notes': 'Increase difficulty or reps weekly',
+                'isRestDay': False
+            },
+            'Tuesday': {
+                'focus': 'Lower Body Power',
+                'exercises': [
+                    '4 sets of 8-12 bodyweight squats',
+                    '3 sets of 10 lunges each leg',
+                    '3 sets of 12 calf raises',
+                    '3 sets of 10 glute bridges'
+                ],
+                'goals': [
+                    'Develop lower body strength',
+                    'Build functional leg muscles'
+                ],
+                'notes': 'Add resistance or increase range of motion',
+                'isRestDay': False
+            },
+            'Wednesday': {
+                'focus': 'Active Recovery',
+                'activities': [
+                    '20-30 minutes gentle walking',
+                    '15 minutes stretching',
+                    'Light mobility work',
+                    'Foam rolling if available'
+                ],
+                'goals': [
+                    'Promote muscle recovery',
+                    'Maintain flexibility'
+                ],
+                'notes': 'Focus on areas that feel tight',
+                'isRestDay': True
+            },
+            'Thursday': {
+                'focus': 'Core & Stability',
+                'exercises': [
+                    '4 sets of 30-60 second planks',
+                    '3 sets of 15 Russian twists',
+                    '3 sets of 12 leg raises',
+                    '3 sets of 10 dead bugs each side'
+                ],
+                'goals': [
+                    'Build core strength',
+                    'Improve spinal stability'
+                ],
+                'notes': 'Quality over quantity - focus on form',
+                'isRestDay': False
+            },
+            'Friday': {
+                'focus': 'Full Body Circuit',
+                'exercises': [
+                    '3 sets of 8-10 compound squats',
+                    '3 sets of 6-8 push-up variations',
+                    '3 sets of 10 inverted rows',
+                    '3 sets of 8 step-ups each leg'
+                ],
+                'goals': [
+                    'Combine all muscle groups',
+                    'Build functional strength'
+                ],
+                'notes': 'Focus on compound movements',
+                'isRestDay': False
+            },
+            'Saturday': {
+                'focus': 'Isolation & Conditioning',
+                'exercises': [
+                    '3 sets of 12 bicep curls',
+                    '3 sets of 15 lateral raises',
+                    '3 sets of 20 calf raises',
+                    '20 minutes light cardio'
+                ],
+                'goals': [
+                    'Target specific muscle groups',
+                    'Improve muscle definition'
+                ],
+                'notes': 'Lighter weights, higher reps',
+                'isRestDay': False
+            },
+            'Sunday': {
+                'focus': 'Complete Rest',
+                'activities': [
+                    'Gentle stretching or yoga',
+                    'Leisurely walk in nature',
+                    'Meal prep and planning',
+                    'Complete rest and recovery'
+                ],
+                'goals': [
+                    'Allow full muscle recovery',
+                    'Prepare for next week'
+                ],
+                'notes': 'Essential for muscle growth',
+                'isRestDay': True
+            }
+        }
+    
+    elif agent_type == 'cardio':
+        return {
+            'Monday': {
+                'focus': 'Steady State Cardio',
+                'exercises': [
+                    '30-40 minutes moderate cardio',
+                    '5 minutes warm-up',
+                    '5 minutes cool-down',
+                    'Light stretching routine'
+                ],
+                'goals': [
+                    'Build aerobic base',
+                    'Improve endurance'
+                ],
+                'notes': 'Maintain steady, comfortable pace',
+                'isRestDay': False
+            },
+            'Tuesday': {
+                'focus': 'Interval Training',
+                'exercises': [
+                    '20 minutes interval training',
+                    '5 sets of 2-minute high intensity',
+                    '1-minute recovery between sets',
+                    '10 minutes cool-down'
+                ],
+                'goals': [
+                    'Improve VO2 max',
+                    'Build speed and power'
+                ],
+                'notes': 'Push hard during intervals',
+                'isRestDay': False
+            },
+            'Wednesday': {
+                'focus': 'Cross Training',
+                'exercises': [
+                    '25 minutes different cardio activity',
+                    '10 minutes core strengthening',
+                    '10 minutes flexibility work',
+                    'Light bodyweight exercises'
+                ],
+                'goals': [
+                    'Prevent overuse injuries',
+                    'Build overall fitness'
+                ],
+                'notes': 'Try swimming, cycling, or rowing',
+                'isRestDay': False
+            },
+            'Thursday': {
+                'focus': 'Active Recovery',
+                'activities': [
+                    '20-30 minutes easy walking',
+                    '15 minutes gentle stretching',
+                    'Light yoga or mobility',
+                    'Breathing exercises'
+                ],
+                'goals': [
+                    'Enhance recovery',
+                    'Maintain movement'
+                ],
+                'notes': 'Very easy pace today',
+                'isRestDay': True
+            },
+            'Friday': {
+                'focus': 'Tempo Training',
+                'exercises': [
+                    '25 minutes tempo cardio',
+                    'Comfortably hard pace',
+                    '5 minutes warm-up',
+                    '5 minutes cool-down'
+                ],
+                'goals': [
+                    'Improve lactate threshold',
+                    'Build stamina'
+                ],
+                'notes': 'Pace you could maintain for 1 hour',
+                'isRestDay': False
+            },
+            'Saturday': {
+                'focus': 'Long Steady Distance',
+                'exercises': [
+                    '45-60 minutes easy cardio',
+                    'Conversational pace',
+                    'Focus on form and breathing',
+                    'Extended cool-down'
+                ],
+                'goals': [
+                    'Build endurance base',
+                    'Improve fat burning'
+                ],
+                'notes': 'Should be able to hold conversation',
+                'isRestDay': False
+            },
+            'Sunday': {
+                'focus': 'Recovery Day',
+                'activities': [
+                    'Gentle movement only',
+                    'Stretching or yoga',
+                    'Easy nature walk',
+                    'Complete rest option'
+                ],
+                'goals': [
+                    'Complete recovery',
+                    'Prepare for next week'
+                ],
+                'notes': 'Listen to your body',
+                'isRestDay': True
+            }
+        }
+    
+    elif agent_type == 'strength':
+        return {
+            'Monday': {
+                'focus': 'Upper Body Push',
+                'exercises': [
+                    '4 sets of 5-8 push-up progressions',
+                    '3 sets of 8-10 overhead presses',
+                    '3 sets of 10-12 tricep exercises',
+                    '3 sets of 8-12 chest exercises'
+                ],
+                'goals': [
+                    'Build pushing strength',
+                    'Increase upper body power'
+                ],
+                'notes': 'Focus on progressive overload',
+                'isRestDay': False
+            },
+            'Tuesday': {
+                'focus': 'Lower Body Strength',
+                'exercises': [
+                    '4 sets of 5-8 squat variations',
+                    '3 sets of 8-10 deadlift patterns',
+                    '3 sets of 10-12 lunges',
+                    '3 sets of 12-15 calf raises'
+                ],
+                'goals': [
+                    'Build leg and glute strength',
+                    'Improve functional movement'
+                ],
+                'notes': 'Emphasize proper form',
+                'isRestDay': False
+            },
+            'Wednesday': {
+                'focus': 'Active Recovery',
+                'activities': [
+                    'Light movement and stretching',
+                    'Mobility work',
+                    'Gentle walking',
+                    'Foam rolling'
+                ],
+                'goals': [
+                    'Promote recovery',
+                    'Maintain flexibility'
+                ],
+                'notes': 'Essential for strength gains',
+                'isRestDay': True
+            },
+            'Thursday': {
+                'focus': 'Upper Body Pull',
+                'exercises': [
+                    '4 sets of 5-8 pulling exercises',
+                    '3 sets of 8-10 rows',
+                    '3 sets of 10-12 bicep curls',
+                    '3 sets of 8-12 reverse flies'
+                ],
+                'goals': [
+                    'Build pulling strength',
+                    'Balance push/pull ratio'
+                ],
+                'notes': 'Focus on back and biceps',
+                'isRestDay': False
+            },
+            'Friday': {
+                'focus': 'Full Body Power',
+                'exercises': [
+                    '3 sets of 6-8 compound movements',
+                    '3 sets of 8-10 multi-joint exercises',
+                    '3 sets of 10-12 functional patterns',
+                    'Power-focused movements'
+                ],
+                'goals': [
+                    'Integrate strength gains',
+                    'Build explosive power'
+                ],
+                'notes': 'Quality over quantity',
+                'isRestDay': False
+            },
+            'Saturday': {
+                'focus': 'Core & Stabilization',
+                'exercises': [
+                    '4 sets of planks and variations',
+                    '3 sets of anti-rotation exercises',
+                    '3 sets of stability challenges',
+                    'Balance and coordination work'
+                ],
+                'goals': [
+                    'Build core strength',
+                    'Improve stability'
+                ],
+                'notes': 'Foundation for all strength',
+                'isRestDay': False
+            },
+            'Sunday': {
+                'focus': 'Complete Rest',
+                'activities': [
+                    'Complete rest or gentle yoga',
+                    'Light stretching',
+                    'Meal prep',
+                    'Recovery activities'
+                ],
+                'goals': [
+                    'Full recovery',
+                    'Prepare for next week'
+                ],
+                'notes': 'Rest is when you get stronger',
+                'isRestDay': True
+            }
+        }
+    
+    else:  # general fitness
+        return {
+            'Monday': {
+                'focus': 'Full Body Fitness',
+                'exercises': [
+                    '3 sets of 10-15 bodyweight squats',
+                    '3 sets of 8-12 push-ups',
+                    '3 sets of 30-45 second planks',
+                    '20 minutes moderate cardio'
+                ],
+                'goals': [
+                    'Build overall fitness',
+                    'Establish routine'
+                ],
+                'notes': 'Start week with balanced workout',
+                'isRestDay': False
+            },
+            'Tuesday': {
+                'focus': 'Cardio & Flexibility',
+                'exercises': [
+                    '25-30 minutes cardio activity',
+                    '3 sets of dynamic movements',
+                    '15 minutes stretching',
+                    'Balance exercises'
+                ],
+                'goals': [
+                    'Improve cardiovascular health',
+                    'Increase flexibility'
+                ],
+                'notes': 'Focus on movements you enjoy',
+                'isRestDay': False
+            },
+            'Wednesday': {
+                'focus': 'Strength & Core',
+                'exercises': [
+                    '3 sets of bodyweight exercises',
+                    '3 sets of core strengthening',
+                    '3 sets of functional movements',
+                    'Light resistance work'
+                ],
+                'goals': [
+                    'Build functional strength',
+                    'Strengthen core'
+                ],
+                'notes': 'Focus on proper form',
+                'isRestDay': False
+            },
+            'Thursday': {
+                'focus': 'Active Recovery',
+                'activities': [
+                    '20-30 minutes easy walking',
+                    'Gentle stretching',
+                    'Light household activities',
+                    'Relaxation exercises'
+                ],
+                'goals': [
+                    'Promote recovery',
+                    'Stay active'
+                ],
+                'notes': 'Listen to your body',
+                'isRestDay': True
+            },
+            'Friday': {
+                'focus': 'Mixed Training',
+                'exercises': [
+                    '20 minutes varied cardio',
+                    '3 sets of strength exercises',
+                    '10 minutes flexibility work',
+                    'Fun movement activities'
+                ],
+                'goals': [
+                    'Combine all fitness elements',
+                    'End week strong'
+                ],
+                'notes': 'Mix up activities to stay engaged',
+                'isRestDay': False
+            },
+            'Saturday': {
+                'focus': 'Recreation & Fun',
+                'exercises': [
+                    '45-60 minutes fun activity',
+                    'Sports, dancing, or hiking',
+                    'Social fitness activities',
+                    'Outdoor adventures'
+                ],
+                'goals': [
+                    'Enjoy being active',
+                    'Build positive associations'
+                ],
+                'notes': 'Make fitness enjoyable',
+                'isRestDay': False
+            },
+            'Sunday': {
+                'focus': 'Rest & Preparation',
+                'activities': [
+                    'Gentle yoga or stretching',
+                    'Leisurely walk',
+                    'Meal prep for week',
+                    'Plan upcoming workouts'
+                ],
+                'goals': [
+                    'Prepare for success',
+                    'Rest and recover'
+                ],
+                'notes': 'Set yourself up for the week ahead',
+                'isRestDay': True
+            }
+        }
+
+def get_fallback_weekly_plan(agent_type):
+    """Return a complete fallback weekly plan when AI generation fails"""
+    return {
+        'weeklyOverview': f'A comprehensive 7-day fitness plan designed for {agent_type.replace("_", " ")} goals. This plan balances training intensity with adequate recovery to promote sustainable progress.',
+        'weeklyGoals': get_weekly_goals_for_agent(agent_type),
+        'dailyPlans': get_fallback_daily_plans(agent_type)
+    }

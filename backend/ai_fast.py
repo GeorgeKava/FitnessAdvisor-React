@@ -18,7 +18,7 @@ client = AzureOpenAI(
     base_url=f"{azure_endpoint}/openai/deployments/{model}",
 )
 
-def get_fast_fitness_recommendation(image_paths, gender, age, weight, agent_type="general"):
+def get_fast_fitness_recommendation(image_paths, gender, age, weight, agent_type="general", health_conditions=""):
     """
     Fast fitness recommendation using only GPT-4o vision - no MCP overhead
     """
@@ -41,8 +41,12 @@ def get_fast_fitness_recommendation(image_paths, gender, age, weight, agent_type
         
         specific_guidance = agent_prompts.get(agent_type, agent_prompts["general"])
 
+        user_info = f"Analyze this {gender}, {age} years old, {weight} lbs person's image."
+        if health_conditions.strip():
+            user_info += f" Health/Exercise Notes: {health_conditions}"
+
         prompt = (
-            f"You are a fitness expert. Analyze this {gender}, {age} years old, {weight} lbs person's image. "
+            f"You are a fitness expert. {user_info} "
             f"{specific_guidance}\n\n"
             f"Provide:\n"
             f"1. **Quick Assessment** - what you see in the image\n"
@@ -50,6 +54,7 @@ def get_fast_fitness_recommendation(image_paths, gender, age, weight, agent_type
             f"3. **Nutrition Tip** - one key dietary advice\n"
             f"4. **Weekly Goal** - one achievable target\n\n"
             f"Keep it concise and actionable."
+            f"{' IMPORTANT: Consider the health conditions/preferences mentioned above.' if health_conditions.strip() else ''}"
         )
 
         # Make API call with optimized parameters

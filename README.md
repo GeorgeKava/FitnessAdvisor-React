@@ -1,7 +1,7 @@
 # FitnessAdvisor React Application
 
 ## Overview
-The **FitnessAdvisor** is a comprehensive web application that provides personalized fitness recommendations based on user-provided images and profile data. Users can register accounts, manage their fitness profiles, and receive AI-powered recommendations through multiple specialized fitness agents. The application features a complete authentication system, profile management, and utilizes both fast and enhanced AI analysis modes. The backend integrates OpenAI's GPT-4o vision model with Model Context Protocol (MCP) for structured fitness data and recommendations.
+The **FitnessAdvisor** is a comprehensive web application that provides personalized fitness recommendations and structured weekly workout plans based on user-provided images and profile data. Users can register accounts, manage their fitness profiles, and receive AI-powered recommendations through multiple specialized fitness agents. The application features a complete authentication system, profile management, weekly plan generation, and utilizes both fast and enhanced AI analysis modes. The backend integrates OpenAI's GPT-4o vision model with Model Context Protocol (MCP) for structured fitness data and comprehensive weekly workout planning.
 
 ---
 
@@ -22,16 +22,30 @@ The **FitnessAdvisor** is a comprehensive web application that provides personal
 - **Weight Loss Coach**: Fat loss strategies and metabolic optimization
 - **Muscle Building Coach**: Hypertrophy-focused training programs
 
+### 📅 Weekly Workout Planning System
+- **7-Day Structured Plans**: Complete weekly workout schedules with daily exercise distribution
+- **Balanced Exercise Distribution**: Intelligent algorithms prevent exercise dumping and ensure even workload across days
+- **Agent-Specific Programming**: Weekly plans tailored to each fitness agent's specialization
+- **Rest Day Management**: Proper recovery days with gentle activities instead of intense exercises
+- **Validation System**: Multi-layer validation ensures realistic and achievable daily exercise counts
+- **Fallback Plans**: Comprehensive backup plans for each agent type when AI generation fails
+- **Exercise Variety**: 3-4 exercises per training day with specific sets, reps, and duration guidelines
+
 ### 📱 Frontend Features
 - **React-Based UI**: Modern, responsive interface with Bootstrap 5 styling
 - **Image Upload**: Upload existing photos from device storage
 - **Live Camera Capture**: Real-time photo capture using device camera
-- **Dual Analysis Modes**: 
+- **Weekly Plan Interface**: Dedicated page for viewing and managing 7-day workout schedules
+- **Multiple Analysis Modes**: 
   - **Fast Mode**: Quick analysis (15-30 seconds) for immediate feedback
-  - **Enhanced Mode**: Detailed analysis (45-90 seconds) with MCP integration
+  - **Enhanced Mode**: Detailed analysis (45-90 seconds) with comprehensive recommendations
+  - **Azure AI Search RAG**: Enhanced with fitness database (30-45 seconds) using Retrieval-Augmented Generation
+  - **Model Context Protocol (MCP)**: Structured fitness tools (20-35 seconds) for personalized workout plans
+  - **🚀 Hybrid RAG + MCP**: Ultimate recommendations (45-60 seconds) combining BOTH technologies for maximum effectiveness
 - **Mobile-Friendly**: Optimized for mobile devices and tablets
 - **Progress Indicators**: Real-time loading states with detailed progress messages
 - **Profile Integration**: Auto-fill forms with saved profile data
+- **Daily Exercise Cards**: Visual presentation of daily workouts with exercise details, goals, and notes
 
 ### 🧠 Backend Capabilities
 - **Flask API**: Python-based backend with comprehensive endpoints
@@ -39,13 +53,35 @@ The **FitnessAdvisor** is a comprehensive web application that provides personal
   - Azure OpenAI GPT-4o vision integration
   - Context-aware recommendations based on user profiles
   - Agent-specific coaching styles and advice
+- **Weekly Plan Generation Engine**:
+  - Structured weekly workout plan creation with balanced exercise distribution
+  - Agent-specific weekly programming (weight loss, muscle gain, cardio, strength, general)
+  - Validation systems preventing unbalanced plans and exercise dumping
+  - Comprehensive fallback plans for reliable service
+  - Timeout handling with MCP integration for enhanced planning
+- **Azure AI Search Integration**: Enterprise search with RAG capabilities
+  - Comprehensive fitness exercise database (3000+ exercises)
+  - User performance tracking and benchmarks
+  - Semantic search for contextual recommendations
 - **MCP Integration**: Model Context Protocol for structured fitness data
   - Workout plan generation
   - Nutrition calculations
   - Exercise recommendations database
-- **Dual Processing Modes**:
+- **Multiple Processing Modes**:
   - Fast analysis for quick recommendations
-  - Enhanced analysis with comprehensive MCP data integration
+  - Enhanced analysis with comprehensive recommendations
+  - RAG-enhanced recommendations using Azure AI Search
+  - MCP-structured recommendations with fitness tools
+  - **🚀 Hybrid RAG + MCP**: Ultimate mode combining both technologies for maximum effectiveness
+  - **Weekly Plan Mode**: Structured 7-day workout plan generation
+
+### 🗄️ Data & Search Capabilities
+- **Azure AI Search Index**: "fitness-index" with comprehensive fitness data
+- **Exercise Database**: 2,919 exercises from megaGymDataset with detailed instructions
+- **User Performance Data**: 974 gym member tracking records for benchmarking
+- **Structured Exercises**: 208 rated exercises with difficulty levels
+- **Semantic Search**: Advanced search capabilities for contextual exercise recommendations
+- **Agentic RAG**: Intelligent data retrieval for evidence-based fitness recommendations
 
 ---
 
@@ -68,6 +104,7 @@ FitnessAdvisor-React/
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── FitnessAdvisorPage.jsx    # Main recommendation interface
+│   │   │   ├── WeeklyPlanPage.jsx        # 7-day workout plan display
 │   │   │   ├── LoginPage.jsx             # User authentication
 │   │   │   ├── RegisterPage.jsx          # User registration
 │   │   │   ├── ProfilePage.jsx           # Profile management
@@ -77,8 +114,8 @@ FitnessAdvisor-React/
 │   │   └── index.jsx           # Application entry point
 │   └── package.json            # Frontend dependencies
 ├── backend/
-│   ├── app.py                  # Main Flask application
-│   ├── ai.py                   # Enhanced AI recommendations with MCP
+│   ├── app.py                  # Main Flask application with weekly plan endpoints
+│   ├── ai.py                   # Enhanced AI recommendations with weekly plan generation
 │   ├── ai_fast.py             # Fast AI recommendations
 │   ├── mcp_server.py          # MCP server for fitness data
 │   ├── mcp_client.py          # MCP client integration
@@ -114,13 +151,31 @@ FitnessAdvisor-React/
    ```
 
 3. **Set Up Environment Variables**:
-   Create a `.env` file in the `backend` directory with your Azure OpenAI credentials:
+   Create a `.env` file in the `backend` directory with your Azure credentials:
    ```env
-   AZURE_OPENAI_API_ENDPOINT="your_endpoint"
-   AZURE_OPENAI_API_KEY="your_api_key"
+   # Azure OpenAI Configuration
+   AZURE_OPENAI_API_ENDPOINT="your_openai_endpoint"
+   AZURE_OPENAI_API_KEY="your_openai_api_key"
    AZURE_OPENAI_API_VERSION="2024-02-15-preview"
    AZURE_OPENAI_MODEL="your_gpt4o_deployment_name"
+   
+   # Azure AI Search Configuration (for RAG mode)
+   AZURE_SEARCH_ENDPOINT="https://your-search-service.search.windows.net"
+   AZURE_SEARCH_ADMIN_KEY="your_search_admin_key"
+   AZURE_SEARCH_INDEX_NAME="fitness-index"
    ```
+
+4. **Set Up Azure AI Search (Optional - for RAG mode)**:
+   ```bash
+   cd backend
+   # Install additional dependencies for Azure AI Search
+   pip install azure-search-documents azure-core
+   
+   # Process and upload fitness datasets to Azure AI Search
+   python azure_search_data_processor.py
+   ```
+   
+   Note: Place your fitness datasets (`megaGymDataset.csv`, `gym_members_exercise_tracking.csv`, `data.csv`) in the backend directory before running the processor.
 
 4. **Install Frontend Dependencies**:
    ```bash
@@ -195,8 +250,21 @@ FitnessAdvisor-React/
    - Get tailored advice based on your selected fitness agent
    - Recommendations include exercise plans, nutrition guidance, and coaching tips
 
+#### Weekly Workout Plans
+1. **Generate Weekly Plans**: Click "Generate Weekly Plan" for structured 7-day programs
+2. **Agent-Specific Programming**: Plans automatically adapt to your selected fitness agent
+3. **Balanced Distribution**: Smart algorithms ensure even exercise distribution across the week
+4. **Daily Breakdown**: View each day's exercises, goals, and focus areas
+5. **Rest Day Management**: Appropriate recovery days with gentle activities
+6. **Comprehensive Format**: Each day includes:
+   - 3-4 specific exercises with sets/reps
+   - Daily goals and focus areas
+   - Training notes and tips
+   - Rest day activities for recovery
+
 ### Navigation
 - **Home**: Main fitness advisor interface
+- **Weekly Plan**: Generate and view 7-day workout schedules
 - **Profile**: Manage your personal information and fitness preferences
 - **Logout**: Securely end your session (top navigation dropdown)
 
@@ -209,6 +277,11 @@ FitnessAdvisor-React/
   - Accepts: Form data with images, gender, age, weight, agent_type, fast_mode
   - Returns: Personalized fitness recommendations
 
+### Weekly Workout Plans
+- **POST** `/api/generate-weekly-plan`: Generate structured 7-day workout plans
+  - Accepts: JSON with user profile data (gender, age, weight, agent_type, health_conditions)
+  - Returns: Complete weekly plan with daily exercises, goals, and schedules
+
 ### File Storage
 - **Captured Images**: Automatically stored in `backend/captured_images/`
 - **Profile Data**: Stored in browser localStorage (production would use proper database)
@@ -216,6 +289,19 @@ FitnessAdvisor-React/
 ---
 
 ## Key Features Explained
+
+### Weekly Workout Plan Generation
+The application includes a sophisticated weekly planning system:
+- **Balanced Distribution Algorithm**: Prevents exercise dumping where all exercises end up on one day
+- **Agent-Specific Programming**: Each fitness agent (weight loss, muscle gain, etc.) has tailored weekly structures
+- **Validation System**: Multi-layer validation ensures:
+  - 7 complete days with appropriate content
+  - 1-2 rest days with gentle activities
+  - 3-4 exercises per training day
+  - Maximum 8 exercises per day (prevents overload)
+  - 15-35 total exercises per week
+- **Comprehensive Fallback Plans**: When AI generation fails, detailed backup plans ensure users always receive quality programming
+- **Rest Day Intelligence**: Rest days include gentle activities like yoga and walking instead of intense exercises
 
 ### MCP (Model Context Protocol) Integration
 The enhanced analysis mode utilizes MCP for:
@@ -247,11 +333,40 @@ The enhanced analysis mode utilizes MCP for:
 ### Backend Architecture
 - Flask with CORS for API endpoints
 - Modular AI processing (ai.py for enhanced, ai_fast.py for quick)
+- Advanced weekly plan generation with validation and fallback systems
 - MCP server/client architecture for structured data
 - Image processing and storage management
+- Robust error handling and timeout management
 
 ### Performance Optimizations
 - Concurrent processing for faster recommendations
 - Image compression for reduced upload times
 - Timeout handling for long-running requests
 - Progressive loading indicators with detailed feedback
+- Intelligent fallback systems for reliable service
+- Optimized weekly plan generation with validation layers
+- Agent-specific caching for improved response times
+
+---
+
+## Recent Updates & Improvements
+
+### Version 2.0 - Weekly Planning System
+- **Complete Weekly Plan Generation**: Structured 7-day workout programs with balanced exercise distribution
+- **Advanced Validation**: Multi-layer validation prevents unbalanced plans and exercise dumping
+- **Agent-Specific Programming**: Tailored weekly structures for each fitness agent type
+- **Comprehensive Fallback Plans**: Detailed backup plans for weight loss, muscle gain, cardio, strength, and general fitness
+- **Smart Rest Day Management**: Intelligent rest day programming with appropriate recovery activities
+- **Robust Error Handling**: Enhanced error handling and timeout management for reliable service
+
+### Enhanced AI Integration
+- **Improved Prompt Engineering**: Better structured prompts for consistent weekly plan formatting
+- **MCP Timeout Handling**: Background MCP processing with timeout controls
+- **Validation Functions**: Comprehensive plan validation ensuring quality and balance
+- **Parsing Improvements**: Robust parsing of AI responses with fallback content generation
+
+### User Experience Improvements
+- **Weekly Plan Interface**: Dedicated page for viewing and managing workout schedules
+- **Visual Plan Display**: Clean, organized presentation of daily workouts with cards
+- **Exercise Detail Cards**: Comprehensive display of exercises, goals, and training notes
+- **Mobile-Optimized Planning**: Responsive design for weekly plan viewing on all devices

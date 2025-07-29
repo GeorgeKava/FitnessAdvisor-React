@@ -9,3 +9,7 @@ AzuriteConfig
 node_modules
 captured_images
 setup_mcp.sh
+MCP_RAG_Architecture_Diagram.md
+backend/.env.example
+backend/data.csv
+backend/megaGymDataset.csv

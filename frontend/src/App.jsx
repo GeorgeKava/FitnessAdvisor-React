@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 
 import FitnessAdvisorPage from './components/FitnessAdvisorPage';
+import DashboardPage from './components/DashboardPage';
+import WeeklyPlanPage from './components/WeeklyPlanPage';
 import LoginPage from './components/LoginPage';
 import RegisterPage from './components/RegisterPage';
 import ProfilePage from './components/ProfilePage';
@@ -30,6 +32,8 @@ function App() {
   };
 
   const handleLogout = () => {
+    // Clear general user session data but KEEP user-specific fitness data
+    // so it's available when they log back in
     localStorage.removeItem('user');
     localStorage.removeItem('userProfile');
     setUser(null);
@@ -64,8 +68,16 @@ function App() {
               element={user ? <ProfilePage user={user} /> : <Navigate to="/login" />} 
             />
             <Route 
+              path="/fitness-advisor" 
+              element={user ? <FitnessAdvisorPage user={user} /> : <Navigate to="/login" />} 
+            />
+            <Route 
+              path="/weekly-plan" 
+              element={user ? <WeeklyPlanPage user={user} /> : <Navigate to="/login" />} 
+            />
+            <Route 
               path="/" 
-              element={user ? <FitnessAdvisorPage /> : <Navigate to="/login" />} 
+              element={user ? <DashboardPage user={user} /> : <Navigate to="/login" />} 
             />
           </Routes>
         </main>

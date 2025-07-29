@@ -6,6 +6,7 @@ const ProfilePage = ({ user }) => {
     age: '',
     sex: '',
     weight: '',
+    healthConditions: '',
     fitnessAgent: 'personal_trainer'
   });
   const [isEditing, setIsEditing] = useState(false);
@@ -199,6 +200,27 @@ const ProfilePage = ({ user }) => {
                     step="0.1"
                     required
                   />
+                </div>
+
+                <div className="mb-3">
+                  <label htmlFor="healthConditions" className="form-label">
+                    <i className="fas fa-heart text-danger me-1"></i>
+                    Health Conditions & Exercise Preferences
+                  </label>
+                  <textarea
+                    className="form-control"
+                    id="healthConditions"
+                    name="healthConditions"
+                    value={profileData.healthConditions}
+                    onChange={handleChange}
+                    disabled={!isEditing}
+                    placeholder="e.g., Lower back pain, knee injury, pregnant, beginner to exercise, prefer low-impact workouts, avoid jumping exercises, etc."
+                    rows="3"
+                  />
+                  <div className="form-text">
+                    <i className="fas fa-info-circle me-1"></i>
+                    Share any health conditions, injuries, physical limitations, or exercise preferences to get safer and more personalized recommendations.
+                  </div>
                 </div>
 
                 <div className="mb-4">

@@ -8,8 +8,6 @@ import json
 import asyncio
 import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime
-from daily_plan_generator import generate_daily_exercise_plan, format_daily_plan_for_recommendation
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +139,7 @@ def get_fallback_fitness_recommendation(user_data, images):
                     azure_openai_client = AzureOpenAI(
                         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
                         api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview"),
-                        azure_endpoint=os.getenv("AZURE_OPENAI_API_ENDPOINT")
+                        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
                     )
                 except Exception as e:
                     logger.warning(f"Azure OpenAI client not available: {e}")
@@ -157,16 +155,13 @@ def get_fallback_fitness_recommendation(user_data, images):
                     result_queue = queue.Queue()
                     def agentic_worker():
                         try:
-                            logger.info("🤖 Starting Agentic RAG worker thread")
                             loop = asyncio.new_event_loop()
                             asyncio.set_event_loop(loop)
                             result = loop.run_until_complete(
                                 agentic_agent.generate_recommendation(user_data, images)
                             )
-                            logger.info("🤖 Agentic RAG completed successfully")
                             result_queue.put(("success", result))
                         except Exception as e:
-                            logger.error(f"🤖 Agentic RAG worker error: {e}")
                             result_queue.put(("error", str(e)))
                         finally:
                             loop.close()
@@ -176,18 +171,15 @@ def get_fallback_fitness_recommendation(user_data, images):
                     thread.join(timeout=60)  # 60 second timeout
                     
                     if thread.is_alive():
-                        logger.error("🤖 Agentic RAG timeout after 60 seconds")
+                        logger.error("Agentic RAG timeout")
                         return None
                     
                     if not result_queue.empty():
                         status, result = result_queue.get()
                         if status == "success":
-                            logger.info("🤖 Agentic RAG result retrieved successfully")
                             return result
                         else:
-                            logger.error(f"🤖 Agentic RAG error: {result}")
-                    else:
-                        logger.error("🤖 Agentic RAG result queue empty")
+                            logger.error(f"Agentic RAG error: {result}")
                     return None
                 
                 try:
@@ -311,8 +303,18 @@ def search_exercises_sync(search_client, search_term, user_profile):
         
         exercises = []
         for result in results:
+            # Additional filter to ensure we only get actual exercises
+            result_type = result.get("type", "")
+            title = result.get("title", "")
+            
+            # Skip if this is member data or has member-like title pattern
+            if (result_type == "member_data" or 
+                "Member " in title or 
+                " - " in title and "Training" in title):
+                continue
+                
             exercise = {
-                "title": result.get("title", "Unknown Exercise"),
+                "title": title,
                 "target": result.get("target", "General"),
                 "equipment": result.get("equipment", "Unknown"),
                 "instructions": result.get("instructions", ""),
@@ -351,8 +353,7 @@ def search_performance_benchmarks_sync(search_client, goal_type, user_profile):
         search_params = {
             "search_text": query,
             "top": 5,
-            "search_mode": "any",
-            "filter": "type eq 'member_data'"  # Only include gym member tracking data for benchmarks
+            "search_mode": "any"
         }
         
         results = search_client.search(**search_params)
@@ -394,44 +395,44 @@ def generate_weight_loss_recommendation(age, gender, weight, health_conditions, 
     # Build exercise recommendations from search results
     exercise_suggestions = ""
     if exercises:
-        exercise_suggestions = "\nRECOMMENDED EXERCISES (from fitness database):\n"
+        exercise_suggestions = "\n**🎯 RECOMMENDED EXERCISES (from fitness database):**\n"
         for i, exercise in enumerate(exercises[:5], 1):
             title = exercise.get('title', 'Unknown Exercise')
             target = exercise.get('target', 'General')
             equipment = exercise.get('equipment', 'Unknown')
-            exercise_suggestions += f"- {title} (Targets: {target}, Equipment: {equipment})\n"
+            exercise_suggestions += f"- **{title}** (Targets: {target}, Equipment: {equipment})\n"
     
     benchmark_info = ""
     if benchmarks:
         avg_calories = sum(b.get('caloriesBurned', 0) for b in benchmarks) / len(benchmarks)
         avg_duration = sum(b.get('sessionDuration', 0) for b in benchmarks) / len(benchmarks)
-        benchmark_info = f"\nPERFORMANCE BENCHMARKS (from similar users):\n- Average calories burned per session: {int(avg_calories)}\n- Average workout duration: {int(avg_duration)} minutes\n"
+        benchmark_info = f"\n**📊 PERFORMANCE BENCHMARKS (from similar users):**\n- Average calories burned per session: {int(avg_calories)}\n- Average workout duration: {int(avg_duration)} minutes\n"
     
     # Add image analysis status at the top
     image_status = "❌ NO IMAGES ANALYZED"
     if images and len(images) > 0:
         image_status = f"📸 {len(images)} IMAGE(S) PROVIDED FOR ANALYSIS"
     
-    recommendation = f"""VISION ANALYSIS STATUS: {image_status}
-(Note: Advanced vision analysis requires Agentic RAG mode)
+    recommendation = f"""## 📸 VISION ANALYSIS STATUS: {image_status}
+*(Note: Advanced vision analysis requires Agentic RAG mode)*
 
-Enhanced Weight Loss Recommendation
-Powered by Azure AI Search + Advanced Calculations
+**🔥 Enhanced Weight Loss Recommendation**
+*Powered by Azure AI Search + Advanced Calculations*
 
-YOUR PROFILE ANALYSIS:
+**📊 YOUR PROFILE ANALYSIS:**
 - Age: {age} years
 - Gender: {gender}
 - Weight: {weight} lbs ({weight * 0.453592:.1f} kg)
 - Health conditions: {health_conditions or 'None specified'}
 - Goal: Weight Loss & Fat Burning
 
-METABOLIC CALCULATIONS:
+**🔥 METABOLIC CALCULATIONS:**
 - Basal Metabolic Rate (BMR): {int(bmr)} calories/day
 - Total Daily Energy Expenditure: {daily_calories} calories/day
 - Target Daily Calories: {target_calories} calories/day
 - Daily Caloric Deficit: {daily_calories - target_calories} calories
 
-NUTRITION PLAN:
+**🍽️ NUTRITION PLAN:**
 - Protein: {protein_grams}g daily (30% of calories)
 - Carbohydrates: {carb_grams}g daily (40% of calories)
 - Fat: {fat_grams}g daily (30% of calories)
@@ -439,61 +440,59 @@ NUTRITION PLAN:
 
 {exercise_suggestions}
 
-WEEKLY WORKOUT SCHEDULE:
+**🏃 WEEKLY WORKOUT SCHEDULE:**
 
-Monday - HIIT Cardio:
+**Monday - HIIT Cardio:**
 - Warm-up: 5 minutes light movement
 - HIIT Circuit: 20 minutes (30 sec work / 30 sec rest)
 - Cool-down: 5 minutes stretching
 - Target heart rate: {int((220 - age) * 0.75)}-{int((220 - age) * 0.85)} bpm
 
-Tuesday - Strength Circuit:
+**Tuesday - Strength Circuit:**
 - Full body resistance training: 30-40 minutes
 - Focus on compound movements
 - 3 sets of 12-15 reps per exercise
 
-Wednesday - Active Recovery:
+**Wednesday - Active Recovery:**
 - 30-45 minutes moderate cardio
 - Walking, light cycling, or swimming
 - Target heart rate: {int((220 - age) * 0.60)}-{int((220 - age) * 0.70)} bpm
 
-Thursday - Strength Training:
+**Thursday - Strength Training:**
 - Upper/Lower body split: 35-45 minutes
 - Progressive overload focus
 - 3-4 sets of 8-12 reps
 
-Friday - Cardio + Core:
+**Friday - Cardio + Core:**
 - 25-30 minutes steady-state cardio
 - 15 minutes core strengthening
 - Focus on endurance building
 
-Weekend - Flexibility & Recreation:
+**Weekend - Flexibility & Recreation:**
 - Yoga or stretching: 20-30 minutes
 - Recreational activities (hiking, sports, dancing)
 
 {benchmark_info}
 
-WEIGHT LOSS PROGRESSION:
+**📈 WEIGHT LOSS PROGRESSION:**
 - Expected loss: 1-2 lbs per week
 - Measurements: Take weekly progress photos
 - Energy levels: Should improve within 2 weeks
 - Strength gains: Noticeable in 4-6 weeks
 
-MONTHLY MILESTONES:
+**🎯 MONTHLY MILESTONES:**
 - Week 1: Establish routine, focus on consistency
 - Week 2: Increase workout intensity by 10%
 - Week 3: Add one extra workout day
 - Week 4: Reassess and adjust plan based on progress
 
-SAFETY & RECOVERY:
+**⚠️ SAFETY & RECOVERY:**
 {f"- Health considerations: {health_conditions}" if health_conditions else "- Listen to your body and rest when needed"}
 - Stay hydrated: Drink water before, during, and after workouts
 - Sleep: Aim for 7-9 hours per night for optimal recovery
 - Nutrition timing: Eat within 30 minutes post-workout
 
-This enhanced recommendation combines Azure AI Search database insights with advanced metabolic calculations for optimal results.
-
-{format_daily_plan_for_recommendation("weight_loss", "beginner", datetime.now().strftime("%A"))}
+*This enhanced recommendation combines Azure AI Search database insights with advanced metabolic calculations for optimal results.*
 """
     
     return {
@@ -528,37 +527,37 @@ def generate_muscle_gain_recommendation(age, gender, weight, exercises, images):
     # Build exercise recommendations from search results
     exercise_suggestions = ""
     if exercises:
-        exercise_suggestions = "\nRECOMMENDED EXERCISES (from fitness database):\n"
+        exercise_suggestions = "\n**💪 RECOMMENDED EXERCISES (from fitness database):**\n"
         for i, exercise in enumerate(exercises[:6], 1):
             title = exercise.get('title', 'Unknown Exercise')
             target = exercise.get('target', 'General')
             equipment = exercise.get('equipment', 'Unknown')
-            exercise_suggestions += f"- {title} (Targets: {target}, Equipment: {equipment})\n"
+            exercise_suggestions += f"- **{title}** (Targets: {target}, Equipment: {equipment})\n"
     
     # Add image analysis status
     image_status = "❌ NO IMAGES ANALYZED"
     if images and len(images) > 0:
         image_status = f"📸 {len(images)} IMAGE(S) PROVIDED FOR ANALYSIS"
     
-    recommendation = f"""VISION ANALYSIS STATUS: {image_status}
-(Note: Advanced vision analysis requires Agentic RAG mode)
+    recommendation = f"""## 📸 VISION ANALYSIS STATUS: {image_status}
+*(Note: Advanced vision analysis requires Agentic RAG mode)*
 
-Enhanced Muscle Building Recommendation
-Powered by Azure AI Search + Scientific Programming
+**💪 Enhanced Muscle Building Recommendation**
+*Powered by Azure AI Search + Scientific Programming*
 
-YOUR MUSCLE BUILDING PROFILE:
+**📊 YOUR MUSCLE BUILDING PROFILE:**
 - Age: {age} years
 - Gender: {gender}
 - Weight: {weight} lbs ({weight * 0.453592:.1f} kg)
 - Goal: Muscle Growth & Strength Development
 
-MUSCLE BUILDING CALCULATIONS:
+**🔥 MUSCLE BUILDING CALCULATIONS:**
 - Daily Calories for Growth: {surplus_calories} calories
 - High Protein Target: {protein_grams}g daily (2.2g per kg bodyweight)
 - Training Frequency: 4-5 days per week
 - Progressive Overload Protocol: Increase load weekly
 
-MUSCLE BUILDING NUTRITION:
+**🍽️ MUSCLE BUILDING NUTRITION:**
 - Protein: {protein_grams}g (35% - muscle protein synthesis)
 - Carbohydrates: {int(surplus_calories * 0.45 / 4)}g (45% - workout fuel)
 - Fat: {int(surplus_calories * 0.20 / 9)}g (20% - hormone production)
@@ -566,53 +565,51 @@ MUSCLE BUILDING NUTRITION:
 
 {exercise_suggestions}
 
-MUSCLE BUILDING WORKOUT SPLIT:
+**🏋️ MUSCLE BUILDING WORKOUT SPLIT:**
 
-Day 1 - Chest & Triceps (Push):
+**Day 1 - Chest & Triceps (Push):**
 - Compound movements: 4 sets of 6-8 reps
 - Isolation exercises: 3 sets of 10-12 reps
 - Focus: Progressive overload on main lifts
 - Rest between sets: 2-3 minutes
 
-Day 2 - Back & Biceps (Pull):
+**Day 2 - Back & Biceps (Pull):**
 - Vertical pulling: 4 sets of 6-10 reps
 - Horizontal pulling: 4 sets of 8-10 reps
 - Bicep specialization: 4 sets of 10-12 reps
 - Emphasis: Full range of motion
 
-Day 3 - Legs & Glutes:
+**Day 3 - Legs & Glutes:**
 - Squats/Leg Press: 4 sets of 8-12 reps
 - Deadlift variations: 4 sets of 6-8 reps
 - Unilateral work: 3 sets of 10 per leg
 - Calf training: 4 sets of 15-20 reps
 
-Day 4 - Shoulders & Arms:
+**Day 4 - Shoulders & Arms:**
 - Overhead pressing: 4 sets of 8-10 reps
 - Lateral movements: 4 sets of 12-15 reps
 - Rear delt focus: 3 sets of 12-15 reps
 - Arms superset: 3 sets of 10-12 reps
 
-Day 5 - Full Body Power:
+**Day 5 - Full Body Power:**
 - Compound movements only
 - Lower rep ranges: 3-6 reps
 - Explosive movements when possible
 - Focus on strength development
 
-MUSCLE BUILDING PRINCIPLES:
+**📈 MUSCLE BUILDING PRINCIPLES:**
 - Progressive Overload: Increase weight 2.5-5 lbs weekly
 - Time Under Tension: Control eccentric phase
 - Recovery: 48-72 hours between training same muscles
 - Volume: 10-20 sets per muscle group per week
 
-EXPECTED RESULTS:
+**🎯 EXPECTED RESULTS:**
 - Beginner gains: 1-2 lbs muscle per month
 - Strength increases: 5-15% monthly improvements
 - Visible changes: 6-8 weeks with proper nutrition
 - Advanced gains: 0.5-1 lb muscle per month
 
-This recommendation leverages exercise database insights and evidence-based muscle building protocols.
-
-{format_daily_plan_for_recommendation("muscle_gain", "beginner", datetime.now().strftime("%A"))}
+*This recommendation leverages exercise database insights and evidence-based muscle building protocols.*
 """
     
     return {
@@ -709,8 +706,6 @@ def generate_general_fitness_recommendation(age, weight, exercises, images):
 - Increased daily energy levels
 
 *This program combines database-driven exercise selection with comprehensive fitness principles for optimal health outcomes.*
-
-{format_daily_plan_for_recommendation("general", "beginner", datetime.now().strftime("%A"))}
 """
     
     return {
@@ -782,20 +777,6 @@ async def get_fitness_recommendation_hybrid(images, user_data):
     except Exception as e:
         logger.error(f"Hybrid recommendation failed: {e}")
         return get_fallback_fitness_recommendation(user_data, images)
-
-
-# Additional compatibility functions
-def get_enhanced_fitness_recommendation_sync(age: int, gender: str, weight: float, height: float = 170, goal: str = "general") -> Dict[str, Any]:
-    """Synchronous wrapper for enhanced fitness recommendations - simplified version"""
-    # This function is used by ai.py but we'll provide a simplified response
-    # since the full MCP functionality has been replaced by Agentic RAG
-    return {
-        "error": "Enhanced MCP recommendations not available - using Agentic RAG system instead",
-        "workout_plan": None,
-        "nutrition_plan": None,
-        "exercise_recommendations": None,
-        "note": "Use the main fitness recommendation system for enhanced features"
-    }
 
 
 # Sync wrappers for backward compatibility

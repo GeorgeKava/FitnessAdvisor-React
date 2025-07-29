@@ -4,9 +4,12 @@ import cv2
 import os
 import uuid
 import logging
+import asyncio
 from dotenv import load_dotenv
 from ai import get_fitness_recommendation
 from ai_fast import get_fast_fitness_recommendation
+from mcp_client import (get_fitness_recommendation_mcp, get_fitness_recommendation_with_rag, 
+                       get_fitness_recommendation_hybrid, get_fallback_fitness_recommendation)
 
 app = Flask(__name__)
 CORS(app)
@@ -35,9 +38,13 @@ def fitness_recommendation():
     gender = request.form.get('gender')
     age = request.form.get('age')
     weight = request.form.get('weight')
+    health_conditions = request.form.get('health_conditions', '')  # Optional field
     agent_type = request.form.get('agent_type', 'general')  # Default to 'general' if not provided
     fast_mode = request.form.get('fast_mode', 'false').lower() == 'true'  # Check for fast mode
-    logging.info(f"Received user data: Gender={gender}, Age={age}, Weight={weight}, Agent={agent_type}, FastMode={fast_mode}")
+    use_rag = request.form.get('use_rag', 'false').lower() == 'true'  # Check for RAG mode
+    use_mcp = request.form.get('use_mcp', 'false').lower() == 'true'  # Check for MCP mode
+    use_hybrid = request.form.get('use_hybrid', 'false').lower() == 'true'  # Check for Hybrid mode
+    logging.info(f"Received user data: Gender={gender}, Age={age}, Weight={weight}, HealthConditions={health_conditions}, Agent={agent_type}, FastMode={fast_mode}, UseRAG={use_rag}, UseMCP={use_mcp}, UseHybrid={use_hybrid}")
 
     images = []
     
@@ -87,27 +94,136 @@ def fitness_recommendation():
 
     logging.info(f"Processing {len(images)} image(s): {images}")
     
+    # Check if MCP is disabled in environment
+    disable_mcp = os.getenv("DISABLE_MCP", "false").lower() == "true"
+    
     try:
-        # Use fast mode for quicker responses
-        if fast_mode:
-            result = get_fast_fitness_recommendation(images, gender, age, weight, agent_type)
+        # Determine which AI processing mode to use
+        if disable_mcp:
+            # MCP is disabled, use enhanced fallback with Agentic RAG
+            logging.info("MCP disabled, using enhanced fallback with Agentic RAG")
+            user_data = {
+                'gender': gender,
+                'age': age,
+                'weight': weight,
+                'health_conditions': health_conditions,
+                'agent_type': agent_type
+            }
+            result = get_fallback_fitness_recommendation(user_data, images)
+        elif use_hybrid or (use_rag and use_mcp):
+            # Use Hybrid RAG + MCP for ultimate recommendations
+            logging.info("Using Hybrid RAG + MCP mode for comprehensive recommendation")
+            user_data = {
+                'gender': gender,
+                'age': age,
+                'weight': weight,
+                'health_conditions': health_conditions,
+                'agent_type': agent_type
+            }
+            result = asyncio.run(get_fitness_recommendation_hybrid(images, user_data))
+        elif use_rag:
+            # Use Azure AI Search RAG for enhanced recommendations
+            logging.info("Using Azure AI Search RAG mode for recommendation")
+            user_data = {
+                'gender': gender,
+                'age': age,
+                'weight': weight,
+                'health_conditions': health_conditions,
+                'agent_type': agent_type
+            }
+            result = asyncio.run(get_fitness_recommendation_with_rag(images, user_data))
+        elif use_mcp:
+            # Use MCP (Model Context Protocol) for structured recommendations
+            logging.info("Using MCP mode for recommendation")
+            result = asyncio.run(get_fitness_recommendation_mcp(images, gender, age, weight, agent_type, health_conditions))
+        elif fast_mode:
+            # Use fast mode for quicker responses
+            result = get_fast_fitness_recommendation(images, gender, age, weight, agent_type, health_conditions)
             logging.info("Using fast mode for recommendation")
+            
+            # Check if fast mode failed and fallback to enhanced RAG
+            if isinstance(result, str) and ("Quick analysis complete!" in result or "error" in result.lower()):
+                logging.info("Fast mode failed, falling back to enhanced RAG system")
+                user_data = {
+                    'gender': gender,
+                    'age': age,
+                    'weight': weight,
+                    'health_conditions': health_conditions,
+                    'agent_type': agent_type
+                }
+                result = get_fallback_fitness_recommendation(user_data, images)
         else:
-            result = get_fitness_recommendation(images, gender, age, weight, agent_type)
+            # Use standard enhanced mode
+            result = get_fitness_recommendation(images, gender, age, weight, agent_type, health_conditions)
             logging.info("Using enhanced mode for recommendation")
+            
+            # Check if enhanced mode failed and fallback to enhanced RAG
+            if isinstance(result, str) and "An error occurred" in result:
+                logging.info("Enhanced mode failed, falling back to enhanced RAG system")
+                user_data = {
+                    'gender': gender,
+                    'age': age,
+                    'weight': weight,
+                    'health_conditions': health_conditions,
+                    'agent_type': agent_type
+                }
+                result = get_fallback_fitness_recommendation(user_data, images)
             
         # ai.py's get_fitness_recommendation returns a string "An error occurred..." on its internal errors.
         # This is currently returned as part of a 200 OK.
-        if isinstance(result, str) and "An error occurred" in result:
-            logging.warning(f"get_fitness_recommendation (ai.py) indicated an error: {result}")
-            # If you want this to be a server error that triggers frontend's catch:
-            # return jsonify({'error': result, 'source': 'ai_processing'}), 500
         
-        logging.info(f"Recommendation result from ai.py: {result}")
-        return jsonify({'recommendation': result})
+        # Handle different result types from various processing modes
+        recommendation_text = result
+        
+        # Extract string recommendation from complex objects (RAG/MCP/Hybrid modes)
+        if isinstance(result, dict):
+            if 'recommendation' in result:
+                recommendation_text = result['recommendation']
+            elif 'error' in result:
+                recommendation_text = result.get('error', 'An error occurred during processing')
+            else:
+                # Convert complex object to readable string
+                recommendation_text = f"Processed your request successfully. Here are your results:\n\n{str(result)}"
+        
+        # Ensure we always have a string for the frontend
+        if not isinstance(recommendation_text, str):
+            recommendation_text = str(recommendation_text)
+        
+        if isinstance(recommendation_text, str) and "An error occurred" in recommendation_text:
+            logging.warning(f"AI processing indicated an error: {recommendation_text}")
+            # If you want this to be a server error that triggers frontend's catch:
+            # return jsonify({'error': recommendation_text, 'source': 'ai_processing'}), 500
+        
+        logging.info(f"Recommendation result: {recommendation_text}")
+        return jsonify({'recommendation': recommendation_text})
     except Exception as e:
-        logging.error(f"Unexpected error during get_fitness_recommendation call or while creating response: {e}", exc_info=True)
+        logging.error(f"Unexpected error during recommendation generation: {e}", exc_info=True)
         return jsonify({'error': 'An internal server error occurred while generating recommendations.'}), 500
+
+@app.route('/api/generate-weekly-plan', methods=['POST'])
+def generate_weekly_plan():
+    logging.info("--- Weekly Plan Generation Endpoint Hit ---")
+    
+    try:
+        data = request.get_json()
+        user_profile = data.get('userProfile')
+        base_recommendation = data.get('baseRecommendation')
+        
+        if not user_profile or not base_recommendation:
+            return jsonify({'error': 'User profile and base recommendation are required'}), 400
+        
+        logging.info(f"Generating weekly plan for user: {user_profile.get('agentType', 'general')}")
+        
+        # Import the weekly plan generation function
+        from ai import generate_weekly_fitness_plan
+        
+        weekly_plan = generate_weekly_fitness_plan(user_profile, base_recommendation)
+        
+        return jsonify(weekly_plan)
+        
+    except Exception as e:
+        logging.error(f"Error generating weekly plan: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to generate weekly plan'}), 500
 
 @app.route('/api/video_feed')
 def video_feed():
