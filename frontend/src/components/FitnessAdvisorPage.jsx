@@ -468,7 +468,7 @@ function FitnessAdvisorPage({ user }) {
 
   return (
     <div className="container">
-      <h2 className="mb-4">Fitness Advisor</h2>
+      <h2 className="mb-4">Your AI Personal Trainer</h2>
 
       {/* Profile Status */}
       {profileLoaded && (

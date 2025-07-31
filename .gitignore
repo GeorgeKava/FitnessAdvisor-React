@@ -13,3 +13,4 @@ MCP_RAG_Architecture_Diagram.md
 backend/.env.example
 backend/data.csv
 backend/megaGymDataset.csv
+FitnessAdvisor_Architecture_Diagram.md

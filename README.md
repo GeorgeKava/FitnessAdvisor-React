@@ -1,7 +1,7 @@
-# FitnessAdvisor React Application
+# Your AI Personal Trainer React Application
 
 ## Overview
-The **FitnessAdvisor** is a comprehensive web application that provides personalized fitness recommendations and structured weekly workout plans based on user-provided images and profile data. Users can register accounts, manage their fitness profiles, and receive AI-powered recommendations through multiple specialized fitness agents. The application features a complete authentication system, profile management, weekly plan generation, and utilizes both fast and enhanced AI analysis modes. The backend integrates OpenAI's GPT-4o vision model with Model Context Protocol (MCP) for structured fitness data and comprehensive weekly workout planning.
+**Your AI Personal Trainer** is a comprehensive web application that provides personalized fitness recommendations and structured weekly workout plans based on user-provided images and profile data. Users can register accounts, manage their fitness profiles, and receive AI-powered recommendations through multiple specialized fitness agents. The application features a complete authentication system, profile management, weekly plan generation, and utilizes both fast and enhanced AI analysis modes. The backend integrates OpenAI's GPT-4o vision model with Model Context Protocol (MCP) for structured fitness data and comprehensive weekly workout planning.
 
 ---
 

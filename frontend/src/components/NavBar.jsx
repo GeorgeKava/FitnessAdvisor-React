@@ -7,7 +7,7 @@ function NavBar({ user, onLogout }) {
       <div className="container">
         <Link className="navbar-brand" to="/">
           <i className="fas fa-dumbbell me-2"></i>
-          Fitness Advisor
+          Your AI Personal Trainer
         </Link>
         <button
           className="navbar-toggler"

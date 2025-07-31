@@ -1,8 +1,8 @@
 {
-  "name": "fitness-advisor-react",
+  "name": "your-ai-personal-trainer-react",
   "version": "1.0.0",
   "private": true,
-  "description": "A React application for fitness advice using GPT-4o vision.",
+  "description": "Your AI Personal Trainer - A React application for personalized fitness guidance using GPT-4o vision.",
   "license": "MIT",
   "proxy": "http://localhost:5000",
   "dependencies": {

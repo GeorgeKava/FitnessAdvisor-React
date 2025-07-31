@@ -1022,7 +1022,7 @@ const DashboardPage = ({ user }) => {
         <div className="col-12">
           <div className="d-flex justify-content-between align-items-center mb-4">
             <div>
-              <h2>Welcome back, {user.name || 'Fitness Enthusiast'}!</h2>
+              <h2>Welcome back, {user.name || 'Fitness Champion'}!</h2>
               <p className="text-muted">Ready to crush your fitness goals today?</p>
             </div>
             <button 
@@ -1054,13 +1054,6 @@ const DashboardPage = ({ user }) => {
                         From Weekly Plan
                       </span>
                     )}
-                    <button 
-                      className="btn btn-light btn-sm"
-                      onClick={loadDashboardData}
-                      title="Refresh Today's Plan"
-                    >
-                      <i className="fas fa-sync-alt"></i>
-                    </button>
                   </div>
                 </div>
               </div>

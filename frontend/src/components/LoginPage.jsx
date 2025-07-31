@@ -65,7 +65,7 @@ const LoginPage = ({ onLogin }) => {
         <div className="col-md-6 col-lg-4">
           <div className="card shadow">
             <div className="card-body p-5">
-              <h2 className="text-center mb-4">Login to Fitness Advisor</h2>
+              <h2 className="text-center mb-4">Login to Your AI Personal Trainer</h2>
               
               {error && (
                 <div className="alert alert-danger" role="alert">
