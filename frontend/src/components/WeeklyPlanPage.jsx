@@ -149,9 +149,9 @@ const WeeklyPlanPage = ({ user }) => {
               </h2>
               <p className="text-muted">Comprehensive 7-day training schedule tailored to your goals. Generate a plan based on your latest AI recommendation to get started!</p>
             </div>
-            <div>
+            <div className="d-flex gap-2">
               <button 
-                className="btn btn-outline-secondary me-2"
+                className="btn btn-outline-secondary"
                 onClick={() => navigate('/')}
               >
                 <i className="fas fa-arrow-left me-2"></i>
@@ -458,7 +458,7 @@ const WeeklyPlanPage = ({ user }) => {
                     </div>
                     <div className="col-md-3">
                       <div className="text-center">
-                        <i className="fas fa-target fa-2x text-success mb-2"></i>
+                        <i className="fas fa-calendar fa-2x text-success mb-2"></i>
                         <h6>Weekly Focus</h6>
                         <span className="badge bg-success">
                           {weeklyPlan.userProfile.agentType.replace('_', ' ')}

@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-d
 import FitnessAdvisorPage from './components/FitnessAdvisorPage';
 import DashboardPage from './components/DashboardPage';
 import WeeklyPlanPage from './components/WeeklyPlanPage';
+import ProgressPage from './components/ProgressPage';
 import LoginPage from './components/LoginPage';
 import RegisterPage from './components/RegisterPage';
 import ProfilePage from './components/ProfilePage';
@@ -74,6 +75,10 @@ function App() {
             <Route 
               path="/weekly-plan" 
               element={user ? <WeeklyPlanPage user={user} /> : <Navigate to="/login" />} 
+            />
+            <Route 
+              path="/progress" 
+              element={user ? <ProgressPage user={user} /> : <Navigate to="/login" />} 
             />
             <Route 
               path="/" 

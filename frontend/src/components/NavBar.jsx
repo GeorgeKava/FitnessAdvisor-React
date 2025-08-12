@@ -43,6 +43,12 @@ function NavBar({ user, onLogout }) {
                   </Link>
                 </li>
                 <li className="nav-item">
+                  <Link className="nav-link" to="/progress">
+                    <i className="fas fa-chart-line me-1"></i>
+                    Progress
+                  </Link>
+                </li>
+                <li className="nav-item">
                   <Link className="nav-link" to="/profile">
                     <i className="fas fa-user me-1"></i>
                     Profile

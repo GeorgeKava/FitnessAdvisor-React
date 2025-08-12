@@ -9,6 +9,7 @@ const DashboardPage = ({ user }) => {
   const [isGeneratingWeeklyPlan, setIsGeneratingWeeklyPlan] = useState(false);
   const [showFullRecommendation, setShowFullRecommendation] = useState(false);
   const [selectedRecommendation, setSelectedRecommendation] = useState(null);
+  const [completedExercises, setCompletedExercises] = useState(new Set());
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -71,6 +72,32 @@ const DashboardPage = ({ user }) => {
     }
   }, [user]);
 
+  // Cleanup old completed exercise data
+  useEffect(() => {
+    if (!user || !user.email) return;
+    
+    const cleanupOldCompletedData = () => {
+      const today = new Date().toLocaleDateString();
+      const keysToRemove = [];
+      
+      // Check all localStorage keys for old completed exercise data
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(`completedExercises_${user.email}_`)) {
+          const keyDate = key.split('_').pop();
+          if (keyDate !== today) {
+            keysToRemove.push(key);
+          }
+        }
+      }
+      
+      // Remove old data
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+    };
+    
+    cleanupOldCompletedData();
+  }, [user]);
+
   const loadDashboardData = () => {
     // Check if user is available before loading data
     if (!user || !user.email) {
@@ -120,6 +147,22 @@ const DashboardPage = ({ user }) => {
       } catch (error) {
         setRecommendationHistory([]);
       }
+    }
+
+    // Load completed exercises for today
+    const today = new Date().toLocaleDateString();
+    const userSpecificCompletedKey = `completedExercises_${user.email}_${today}`;
+    const completed = localStorage.getItem(userSpecificCompletedKey);
+    
+    if (completed) {
+      try {
+        const parsedCompleted = JSON.parse(completed);
+        setCompletedExercises(new Set(parsedCompleted));
+      } catch (error) {
+        setCompletedExercises(new Set());
+      }
+    } else {
+      setCompletedExercises(new Set());
     }
 
     // Generate today's plan from latest recommendation (only if no weekly plan exists)
@@ -931,6 +974,27 @@ const DashboardPage = ({ user }) => {
     navigate('/fitness-advisor');
   };
 
+  const handleExerciseCompletion = (exerciseIndex) => {
+    if (!user || !user.email) return;
+    
+    const today = new Date().toLocaleDateString();
+    const exerciseKey = `${today}_${exerciseIndex}`;
+    
+    // Toggle completion status
+    const newCompletedExercises = new Set(completedExercises);
+    if (newCompletedExercises.has(exerciseKey)) {
+      newCompletedExercises.delete(exerciseKey);
+    } else {
+      newCompletedExercises.add(exerciseKey);
+    }
+    
+    setCompletedExercises(newCompletedExercises);
+    
+    // Save to localStorage with user-specific key for today
+    const userSpecificCompletedKey = `completedExercises_${user.email}_${today}`;
+    localStorage.setItem(userSpecificCompletedKey, JSON.stringify(Array.from(newCompletedExercises)));
+  };
+
   const handleViewFullRecommendation = (recommendation = null) => {
     const recToShow = recommendation || latestRecommendation;
     setSelectedRecommendation(recToShow);
@@ -1038,10 +1102,10 @@ const DashboardPage = ({ user }) => {
 
       {/* Today's Plan Section */}
       {todaysPlan ? (
-        <div className="row mb-4">
+        <div className="row mb-3">
           <div className="col-12">
             <div className={`card ${todaysPlan.fromWeeklyPlan ? 'border-success' : 'border-primary'}`}>
-              <div className={`card-header ${todaysPlan.fromWeeklyPlan ? 'bg-success' : 'bg-primary'} text-white`}>
+              <div className={`card-header ${todaysPlan.fromWeeklyPlan ? 'bg-success' : 'bg-primary'} text-white py-2`}>
                 <div className="d-flex justify-content-between align-items-center">
                   <h4 className="mb-0">
                     <i className="fas fa-calendar-day me-2"></i>
@@ -1057,12 +1121,12 @@ const DashboardPage = ({ user }) => {
                   </div>
                 </div>
               </div>
-              <div className="card-body">
+              <div className="card-body py-3">
                 {/* Focus Area (if from weekly plan) */}
                 {todaysPlan.fromWeeklyPlan && todaysPlan.focus && (
-                  <div className="row mb-3">
+                  <div className="row mb-2">
                     <div className="col-12">
-                      <div className="alert alert-info d-flex align-items-center">
+                      <div className="alert alert-info d-flex align-items-center mb-2 py-2">
                         <i className="fas fa-crosshairs me-2"></i>
                         <strong>Focus Area: </strong>
                         <span className="ms-2">{todaysPlan.focus}</span>
@@ -1074,41 +1138,48 @@ const DashboardPage = ({ user }) => {
                 <div className="row">
                   {/* Exercise Plan */}
                   <div className={todaysPlan.fromWeeklyPlan ? "col-md-6" : "col-md-6"}>
-                    <h5 className={todaysPlan.fromWeeklyPlan ? "text-success" : "text-primary"}>
+                    <h5 className={`${todaysPlan.fromWeeklyPlan ? "text-success" : "text-primary"} mb-2`}>
                       <i className="fas fa-dumbbell me-2"></i>
                       {todaysPlan.isRestDay ? 'Recovery Activities' : 'Exercises'}
                     </h5>
                     <div className="exercises-list">
-                      {(todaysPlan.isRestDay ? todaysPlan.activities : todaysPlan.exercises).map((exercise, index) => (
-                        <div key={index} className="d-flex align-items-start mb-3">
-                          <div className="me-3">
-                            <span className="badge bg-primary rounded-pill">{index + 1}</span>
-                          </div>
-                          <div className="flex-grow-1">
-                            <p className="mb-0">{exercise}</p>
-                          </div>
-                          {todaysPlan.fromWeeklyPlan && (
+                      {(todaysPlan.isRestDay ? todaysPlan.activities : todaysPlan.exercises).map((exercise, index) => {
+                        const today = new Date().toLocaleDateString();
+                        const exerciseKey = `${today}_${index}`;
+                        const isCompleted = completedExercises.has(exerciseKey);
+                        
+                        return (
+                          <div key={index} className="d-flex align-items-start mb-2">
+                            <div className="me-2">
+                              <span className="badge bg-primary rounded-pill">{index + 1}</span>
+                            </div>
+                            <div className="flex-grow-1">
+                              <p className={`mb-0 ${isCompleted ? 'text-decoration-line-through text-muted' : ''}`}>
+                                {exercise}
+                              </p>
+                            </div>
                             <button 
-                              className="btn btn-outline-success btn-sm ms-2"
-                              title="Mark as complete"
+                              className={`btn btn-sm ms-2 ${isCompleted ? 'btn-success' : 'btn-outline-success'}`}
+                              title={isCompleted ? "Completed - Click to undo" : "Mark as complete"}
+                              onClick={() => handleExerciseCompletion(index)}
                             >
-                              <i className="fas fa-check"></i>
+                              <i className={`fas ${isCompleted ? 'fa-check-circle' : 'fa-check'}`}></i>
                             </button>
-                          )}
-                        </div>
-                      ))}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
                   {/* Goals */}
                   <div className="col-md-6">
-                    <h5 className="text-warning">
+                    <h5 className="text-warning mb-2">
                       <i className="fas fa-target me-2"></i>
                       Today's Goals
                     </h5>
                     <div className="goals-list">
                       {todaysPlan.goals.map((goal, index) => (
-                        <div key={index} className="d-flex align-items-start mb-2">
+                        <div key={index} className="d-flex align-items-start mb-1">
                           <i className="fas fa-star text-warning me-2 mt-1"></i>
                           <span>{goal}</span>
                         </div>
@@ -1119,9 +1190,9 @@ const DashboardPage = ({ user }) => {
 
                 {/* Notes (if from weekly plan) */}
                 {todaysPlan.fromWeeklyPlan && todaysPlan.notes && (
-                  <div className="row mt-3">
+                  <div className="row mt-2">
                     <div className="col-12">
-                      <div className="alert alert-light">
+                      <div className="alert alert-light mb-2 py-2">
                         <i className="fas fa-sticky-note me-2 text-info"></i>
                         <strong>Notes: </strong>
                         {todaysPlan.notes}
@@ -1131,7 +1202,7 @@ const DashboardPage = ({ user }) => {
                 )}
 
                 {/* Action Buttons */}
-                <div className="row mt-3">
+                <div className="row mt-2">
                   <div className="col-12">
                     <div className="d-flex justify-content-between align-items-center">
                       <div>
@@ -1383,7 +1454,7 @@ const DashboardPage = ({ user }) => {
             <div className="card-body">
               <h5 className="card-title">Quick Actions</h5>
               <div className="row">
-                <div className="col-md-3">
+                <div className="col-md-4">
                   <button 
                     className="btn btn-outline-primary w-100 mb-2"
                     onClick={() => navigate('/fitness-advisor')}
@@ -1392,7 +1463,7 @@ const DashboardPage = ({ user }) => {
                     New Analysis
                   </button>
                 </div>
-                <div className="col-md-3">
+                <div className="col-md-4">
                   <button 
                     className="btn btn-outline-success w-100 mb-2"
                     onClick={() => navigate('/profile')}
@@ -1401,13 +1472,7 @@ const DashboardPage = ({ user }) => {
                     Update Profile
                   </button>
                 </div>
-                <div className="col-md-3">
-                  <button className="btn btn-outline-info w-100 mb-2">
-                    <i className="fas fa-chart-line me-2"></i>
-                    Progress Tracking
-                  </button>
-                </div>
-                <div className="col-md-3">
+                <div className="col-md-4">
                   <button 
                     className="btn btn-outline-warning w-100 mb-2"
                     onClick={() => navigate('/weekly-plan')}
