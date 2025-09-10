@@ -49,6 +49,39 @@ function NavBar({ user, onLogout }) {
                   </Link>
                 </li>
                 <li className="nav-item">
+                  <Link className="nav-link" to="/voice-chat">
+                    <i className="fas fa-microphone me-1"></i>
+                    Voice Chat
+                  </Link>
+                </li>
+                <li className="nav-item dropdown">
+                  <a
+                    className="nav-link dropdown-toggle"
+                    href="#"
+                    id="nutritionDropdown"
+                    role="button"
+                    data-bs-toggle="dropdown"
+                    aria-expanded="false"
+                  >
+                    <i className="fas fa-utensils me-1"></i>
+                    Nutrition
+                  </a>
+                  <ul className="dropdown-menu" aria-labelledby="nutritionDropdown">
+                    <li>
+                      <Link className="dropdown-item" to="/food-recommendations">
+                        <i className="fas fa-apple-alt me-2"></i>
+                        Food Recommendations
+                      </Link>
+                    </li>
+                    <li>
+                      <Link className="dropdown-item" to="/identify-food">
+                        <i className="fas fa-camera me-2"></i>
+                        Identify Food
+                      </Link>
+                    </li>
+                  </ul>
+                </li>
+                <li className="nav-item">
                   <Link className="nav-link" to="/profile">
                     <i className="fas fa-user me-1"></i>
                     Profile

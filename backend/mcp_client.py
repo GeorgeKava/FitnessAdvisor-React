@@ -8,8 +8,6 @@ import json
 import asyncio
 import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime
-from daily_plan_generator import generate_daily_exercise_plan, format_daily_plan_for_recommendation
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +65,7 @@ class FitnessMCPClient:
 
 # MAIN FUNCTIONS USED BY APP.PY
 
-async def get_fitness_recommendation_mcp(images, gender, age, weight, agent_type, health_conditions=""):
+async def get_fitness_recommendation_mcp(images, gender, age, weight, height, agent_type, health_conditions=""):
     """Get MCP-enhanced fitness recommendation with fallback"""
     
     # Check if MCP is disabled via environment variable
@@ -77,6 +75,7 @@ async def get_fitness_recommendation_mcp(images, gender, age, weight, agent_type
             'gender': gender,
             'age': age,
             'weight': weight,
+            'height': height,
             'health_conditions': health_conditions,
             'agent_type': agent_type
         }
@@ -87,6 +86,7 @@ async def get_fitness_recommendation_mcp(images, gender, age, weight, agent_type
             'gender': gender,
             'age': age,
             'weight': weight,
+            'height': height,
             'health_conditions': health_conditions,
             'agent_type': agent_type
         }
@@ -100,6 +100,7 @@ async def get_fitness_recommendation_mcp(images, gender, age, weight, agent_type
             'gender': gender,
             'age': age,
             'weight': weight,
+            'height': height,
             'health_conditions': health_conditions,
             'agent_type': agent_type
         }
@@ -111,6 +112,7 @@ def get_fallback_fitness_recommendation(user_data, images):
     age = int(user_data.get('age', 30))
     gender = user_data.get('gender', 'male')
     weight = float(user_data.get('weight', 150))
+    height = user_data.get('height')  # Height in inches
     agent_type = user_data.get('agent_type', 'general')
     health_conditions = user_data.get('health_conditions', '')
     
@@ -141,7 +143,7 @@ def get_fallback_fitness_recommendation(user_data, images):
                     azure_openai_client = AzureOpenAI(
                         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
                         api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview"),
-                        azure_endpoint=os.getenv("AZURE_OPENAI_API_ENDPOINT")
+                        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
                     )
                 except Exception as e:
                     logger.warning(f"Azure OpenAI client not available: {e}")
@@ -157,16 +159,13 @@ def get_fallback_fitness_recommendation(user_data, images):
                     result_queue = queue.Queue()
                     def agentic_worker():
                         try:
-                            logger.info("🤖 Starting Agentic RAG worker thread")
                             loop = asyncio.new_event_loop()
                             asyncio.set_event_loop(loop)
                             result = loop.run_until_complete(
                                 agentic_agent.generate_recommendation(user_data, images)
                             )
-                            logger.info("🤖 Agentic RAG completed successfully")
                             result_queue.put(("success", result))
                         except Exception as e:
-                            logger.error(f"🤖 Agentic RAG worker error: {e}")
                             result_queue.put(("error", str(e)))
                         finally:
                             loop.close()
@@ -176,18 +175,15 @@ def get_fallback_fitness_recommendation(user_data, images):
                     thread.join(timeout=60)  # 60 second timeout
                     
                     if thread.is_alive():
-                        logger.error("🤖 Agentic RAG timeout after 60 seconds")
+                        logger.error("Agentic RAG timeout")
                         return None
                     
                     if not result_queue.empty():
                         status, result = result_queue.get()
                         if status == "success":
-                            logger.info("🤖 Agentic RAG result retrieved successfully")
                             return result
                         else:
-                            logger.error(f"🤖 Agentic RAG error: {result}")
-                    else:
-                        logger.error("🤖 Agentic RAG result queue empty")
+                            logger.error(f"Agentic RAG error: {result}")
                     return None
                 
                 try:
@@ -224,6 +220,7 @@ def get_azure_search_enhanced_fallback_sync(user_data, images, mcp_client):
     age = int(user_data.get('age', 30))
     gender = user_data.get('gender', 'male')
     weight = float(user_data.get('weight', 150))
+    height = user_data.get('height', None)
     agent_type = user_data.get('agent_type', 'general')
     health_conditions = user_data.get('health_conditions', '')
     
@@ -237,6 +234,13 @@ def get_azure_search_enhanced_fallback_sync(user_data, images, mcp_client):
         "available_equipment": ["bodyweight", "dumbbells"],
         "exercise_type": agent_type
     }
+    
+    # Add height to profile if provided and not empty
+    if height and str(height).strip():
+        try:
+            user_profile["height"] = float(height)
+        except (ValueError, TypeError):
+            pass  # Skip if height conversion fails
     
     # Search for relevant exercises using Azure Search (sync version)
     relevant_exercises = []
@@ -270,11 +274,11 @@ def get_azure_search_enhanced_fallback_sync(user_data, images, mcp_client):
     
     # Generate recommendation based on agent type
     if agent_type == 'weight_loss':
-        return generate_weight_loss_recommendation(age, gender, weight, health_conditions, relevant_exercises, performance_benchmarks, images)
+        return generate_weight_loss_recommendation(age, gender, weight, height, health_conditions, relevant_exercises, performance_benchmarks, images)
     elif agent_type == 'muscle_gain':
-        return generate_muscle_gain_recommendation(age, gender, weight, relevant_exercises, images)
+        return generate_muscle_gain_recommendation(age, gender, weight, height, relevant_exercises, images)
     else:
-        return generate_general_fitness_recommendation(age, weight, relevant_exercises, images)
+        return generate_general_fitness_recommendation(age, weight, height, relevant_exercises, images)
 
 
 def search_exercises_sync(search_client, search_term, user_profile):
@@ -311,8 +315,18 @@ def search_exercises_sync(search_client, search_term, user_profile):
         
         exercises = []
         for result in results:
+            # Additional filter to ensure we only get actual exercises
+            result_type = result.get("type", "")
+            title = result.get("title", "")
+            
+            # Skip if this is member data or has member-like title pattern
+            if (result_type == "member_data" or 
+                "Member " in title or 
+                " - " in title and "Training" in title):
+                continue
+                
             exercise = {
-                "title": result.get("title", "Unknown Exercise"),
+                "title": title,
                 "target": result.get("target", "General"),
                 "equipment": result.get("equipment", "Unknown"),
                 "instructions": result.get("instructions", ""),
@@ -351,8 +365,7 @@ def search_performance_benchmarks_sync(search_client, goal_type, user_profile):
         search_params = {
             "search_text": query,
             "top": 5,
-            "search_mode": "any",
-            "filter": "type eq 'member_data'"  # Only include gym member tracking data for benchmarks
+            "search_mode": "any"
         }
         
         results = search_client.search(**search_params)
@@ -377,13 +390,26 @@ def search_performance_benchmarks_sync(search_client, goal_type, user_profile):
         return []
 
 
-def generate_weight_loss_recommendation(age, gender, weight, health_conditions, exercises, benchmarks, images):
+def generate_weight_loss_recommendation(age, gender, weight, height, health_conditions, exercises, benchmarks, images):
     """Generate weight loss recommendation with vision status"""
-    # Calculate BMR and daily calories
+    # Use provided height or default values if height is not provided
+    height_cm = 170  # Default height in cm
+    height_display = None
+    
+    if height and str(height).strip():  # Check for non-empty value
+        try:
+            height_inches = float(height)
+            height_cm = height_inches * 2.54  # Convert inches to cm
+            height_display = height_inches
+        except (ValueError, TypeError):
+            height_cm = 170  # Fallback default
+            height_display = None
+    
+    # Calculate BMR and daily calories using actual height
     if gender.lower() == 'male':
-        bmr = 88.362 + (13.397 * weight * 0.453592) + (4.799 * 175) - (5.677 * age)
+        bmr = 88.362 + (13.397 * weight * 0.453592) + (4.799 * height_cm) - (5.677 * age)
     else:
-        bmr = 447.593 + (9.247 * weight * 0.453592) + (3.098 * 165) - (4.330 * age)
+        bmr = 447.593 + (9.247 * weight * 0.453592) + (3.098 * height_cm) - (4.330 * age)
     
     daily_calories = int(bmr * 1.55)
     target_calories = daily_calories - 500
@@ -394,44 +420,45 @@ def generate_weight_loss_recommendation(age, gender, weight, health_conditions, 
     # Build exercise recommendations from search results
     exercise_suggestions = ""
     if exercises:
-        exercise_suggestions = "\nRECOMMENDED EXERCISES (from fitness database):\n"
+        exercise_suggestions = "\n**🎯 RECOMMENDED EXERCISES (from fitness database):**\n"
         for i, exercise in enumerate(exercises[:5], 1):
             title = exercise.get('title', 'Unknown Exercise')
             target = exercise.get('target', 'General')
             equipment = exercise.get('equipment', 'Unknown')
-            exercise_suggestions += f"- {title} (Targets: {target}, Equipment: {equipment})\n"
+            exercise_suggestions += f"- **{title}** (Targets: {target}, Equipment: {equipment})\n"
     
     benchmark_info = ""
     if benchmarks:
         avg_calories = sum(b.get('caloriesBurned', 0) for b in benchmarks) / len(benchmarks)
         avg_duration = sum(b.get('sessionDuration', 0) for b in benchmarks) / len(benchmarks)
-        benchmark_info = f"\nPERFORMANCE BENCHMARKS (from similar users):\n- Average calories burned per session: {int(avg_calories)}\n- Average workout duration: {int(avg_duration)} minutes\n"
+        benchmark_info = f"\n**📊 PERFORMANCE BENCHMARKS (from similar users):**\n- Average calories burned per session: {int(avg_calories)}\n- Average workout duration: {int(avg_duration)} minutes\n"
     
     # Add image analysis status at the top
     image_status = "❌ NO IMAGES ANALYZED"
     if images and len(images) > 0:
         image_status = f"📸 {len(images)} IMAGE(S) PROVIDED FOR ANALYSIS"
     
-    recommendation = f"""VISION ANALYSIS STATUS: {image_status}
-(Note: Advanced vision analysis requires Agentic RAG mode)
+    recommendation = f"""## 📸 VISION ANALYSIS STATUS: {image_status}
+*(Note: Advanced vision analysis requires Agentic RAG mode)*
 
-Enhanced Weight Loss Recommendation
-Powered by Azure AI Search + Advanced Calculations
+**🔥 Enhanced Weight Loss Recommendation**
+*Powered by Azure AI Search + Advanced Calculations*
 
-YOUR PROFILE ANALYSIS:
+**📊 YOUR PROFILE ANALYSIS:**
 - Age: {age} years
 - Gender: {gender}
 - Weight: {weight} lbs ({weight * 0.453592:.1f} kg)
+- Height: {str(height_display) + " inches" if height_display else "Not specified"} ({height_cm:.1f} cm)
 - Health conditions: {health_conditions or 'None specified'}
 - Goal: Weight Loss & Fat Burning
 
-METABOLIC CALCULATIONS:
+**🔥 METABOLIC CALCULATIONS:**
 - Basal Metabolic Rate (BMR): {int(bmr)} calories/day
 - Total Daily Energy Expenditure: {daily_calories} calories/day
 - Target Daily Calories: {target_calories} calories/day
 - Daily Caloric Deficit: {daily_calories - target_calories} calories
 
-NUTRITION PLAN:
+**🍽️ NUTRITION PLAN:**
 - Protein: {protein_grams}g daily (30% of calories)
 - Carbohydrates: {carb_grams}g daily (40% of calories)
 - Fat: {fat_grams}g daily (30% of calories)
@@ -439,61 +466,59 @@ NUTRITION PLAN:
 
 {exercise_suggestions}
 
-WEEKLY WORKOUT SCHEDULE:
+**🏃 WEEKLY WORKOUT SCHEDULE:**
 
-Monday - HIIT Cardio:
+**Monday - HIIT Cardio:**
 - Warm-up: 5 minutes light movement
 - HIIT Circuit: 20 minutes (30 sec work / 30 sec rest)
 - Cool-down: 5 minutes stretching
 - Target heart rate: {int((220 - age) * 0.75)}-{int((220 - age) * 0.85)} bpm
 
-Tuesday - Strength Circuit:
+**Tuesday - Strength Circuit:**
 - Full body resistance training: 30-40 minutes
 - Focus on compound movements
 - 3 sets of 12-15 reps per exercise
 
-Wednesday - Active Recovery:
+**Wednesday - Active Recovery:**
 - 30-45 minutes moderate cardio
 - Walking, light cycling, or swimming
 - Target heart rate: {int((220 - age) * 0.60)}-{int((220 - age) * 0.70)} bpm
 
-Thursday - Strength Training:
+**Thursday - Strength Training:**
 - Upper/Lower body split: 35-45 minutes
 - Progressive overload focus
 - 3-4 sets of 8-12 reps
 
-Friday - Cardio + Core:
+**Friday - Cardio + Core:**
 - 25-30 minutes steady-state cardio
 - 15 minutes core strengthening
 - Focus on endurance building
 
-Weekend - Flexibility & Recreation:
+**Weekend - Flexibility & Recreation:**
 - Yoga or stretching: 20-30 minutes
 - Recreational activities (hiking, sports, dancing)
 
 {benchmark_info}
 
-WEIGHT LOSS PROGRESSION:
+**📈 WEIGHT LOSS PROGRESSION:**
 - Expected loss: 1-2 lbs per week
 - Measurements: Take weekly progress photos
 - Energy levels: Should improve within 2 weeks
 - Strength gains: Noticeable in 4-6 weeks
 
-MONTHLY MILESTONES:
+**🎯 MONTHLY MILESTONES:**
 - Week 1: Establish routine, focus on consistency
 - Week 2: Increase workout intensity by 10%
 - Week 3: Add one extra workout day
 - Week 4: Reassess and adjust plan based on progress
 
-SAFETY & RECOVERY:
+**⚠️ SAFETY & RECOVERY:**
 {f"- Health considerations: {health_conditions}" if health_conditions else "- Listen to your body and rest when needed"}
 - Stay hydrated: Drink water before, during, and after workouts
 - Sleep: Aim for 7-9 hours per night for optimal recovery
 - Nutrition timing: Eat within 30 minutes post-workout
 
-This enhanced recommendation combines Azure AI Search database insights with advanced metabolic calculations for optimal results.
-
-{format_daily_plan_for_recommendation("weight_loss", "beginner", datetime.now().strftime("%A"))}
+*This enhanced recommendation combines Azure AI Search database insights with advanced metabolic calculations for optimal results.*
 """
     
     return {
@@ -518,47 +543,66 @@ This enhanced recommendation combines Azure AI Search database insights with adv
     }
 
 
-def generate_muscle_gain_recommendation(age, gender, weight, exercises, images):
+def generate_muscle_gain_recommendation(age, gender, weight, height, exercises, images):
     """Generate muscle gain recommendation with vision status"""
-    # Muscle building calculations
-    daily_calories = int((88.362 + (13.397 * weight * 0.453592) + (4.799 * 175) - (5.677 * age)) * 1.725)
+    # Use provided height or default values if height is not provided
+    height_cm = 170  # Default height in cm
+    height_display = None
+    
+    if height and str(height).strip():  # Check for non-empty value
+        try:
+            height_inches = float(height)
+            height_cm = height_inches * 2.54  # Convert inches to cm
+            height_display = height_inches
+        except (ValueError, TypeError):
+            height_cm = 170  # Fallback default
+            height_display = None
+    
+    # Muscle building calculations using actual height
+    if gender.lower() == 'male':
+        bmr = 88.362 + (13.397 * weight * 0.453592) + (4.799 * height_cm) - (5.677 * age)
+    else:
+        bmr = 447.593 + (9.247 * weight * 0.453592) + (3.098 * height_cm) - (4.330 * age)
+    
+    daily_calories = int(bmr * 1.725)  # Activity factor for muscle building
     surplus_calories = daily_calories + 300
     protein_grams = int(weight * 0.453592 * 2.2)  # 2.2g per kg for muscle gain
     
     # Build exercise recommendations from search results
     exercise_suggestions = ""
     if exercises:
-        exercise_suggestions = "\nRECOMMENDED EXERCISES (from fitness database):\n"
+        exercise_suggestions = "\n**💪 RECOMMENDED EXERCISES (from fitness database):**\n"
         for i, exercise in enumerate(exercises[:6], 1):
             title = exercise.get('title', 'Unknown Exercise')
             target = exercise.get('target', 'General')
             equipment = exercise.get('equipment', 'Unknown')
-            exercise_suggestions += f"- {title} (Targets: {target}, Equipment: {equipment})\n"
+            exercise_suggestions += f"- **{title}** (Targets: {target}, Equipment: {equipment})\n"
     
     # Add image analysis status
     image_status = "❌ NO IMAGES ANALYZED"
     if images and len(images) > 0:
         image_status = f"📸 {len(images)} IMAGE(S) PROVIDED FOR ANALYSIS"
     
-    recommendation = f"""VISION ANALYSIS STATUS: {image_status}
-(Note: Advanced vision analysis requires Agentic RAG mode)
+    recommendation = f"""## 📸 VISION ANALYSIS STATUS: {image_status}
+*(Note: Advanced vision analysis requires Agentic RAG mode)*
 
-Enhanced Muscle Building Recommendation
-Powered by Azure AI Search + Scientific Programming
+**💪 Enhanced Muscle Building Recommendation**
+*Powered by Azure AI Search + Scientific Programming*
 
-YOUR MUSCLE BUILDING PROFILE:
+**📊 YOUR MUSCLE BUILDING PROFILE:**
 - Age: {age} years
 - Gender: {gender}
 - Weight: {weight} lbs ({weight * 0.453592:.1f} kg)
+- Height: {str(height_display) + " inches" if height_display else "Not specified"} ({height_cm:.1f} cm)
 - Goal: Muscle Growth & Strength Development
 
-MUSCLE BUILDING CALCULATIONS:
+**🔥 MUSCLE BUILDING CALCULATIONS:**
 - Daily Calories for Growth: {surplus_calories} calories
 - High Protein Target: {protein_grams}g daily (2.2g per kg bodyweight)
 - Training Frequency: 4-5 days per week
 - Progressive Overload Protocol: Increase load weekly
 
-MUSCLE BUILDING NUTRITION:
+**🍽️ MUSCLE BUILDING NUTRITION:**
 - Protein: {protein_grams}g (35% - muscle protein synthesis)
 - Carbohydrates: {int(surplus_calories * 0.45 / 4)}g (45% - workout fuel)
 - Fat: {int(surplus_calories * 0.20 / 9)}g (20% - hormone production)
@@ -566,53 +610,51 @@ MUSCLE BUILDING NUTRITION:
 
 {exercise_suggestions}
 
-MUSCLE BUILDING WORKOUT SPLIT:
+**🏋️ MUSCLE BUILDING WORKOUT SPLIT:**
 
-Day 1 - Chest & Triceps (Push):
+**Day 1 - Chest & Triceps (Push):**
 - Compound movements: 4 sets of 6-8 reps
 - Isolation exercises: 3 sets of 10-12 reps
 - Focus: Progressive overload on main lifts
 - Rest between sets: 2-3 minutes
 
-Day 2 - Back & Biceps (Pull):
+**Day 2 - Back & Biceps (Pull):**
 - Vertical pulling: 4 sets of 6-10 reps
 - Horizontal pulling: 4 sets of 8-10 reps
 - Bicep specialization: 4 sets of 10-12 reps
 - Emphasis: Full range of motion
 
-Day 3 - Legs & Glutes:
+**Day 3 - Legs & Glutes:**
 - Squats/Leg Press: 4 sets of 8-12 reps
 - Deadlift variations: 4 sets of 6-8 reps
 - Unilateral work: 3 sets of 10 per leg
 - Calf training: 4 sets of 15-20 reps
 
-Day 4 - Shoulders & Arms:
+**Day 4 - Shoulders & Arms:**
 - Overhead pressing: 4 sets of 8-10 reps
 - Lateral movements: 4 sets of 12-15 reps
 - Rear delt focus: 3 sets of 12-15 reps
 - Arms superset: 3 sets of 10-12 reps
 
-Day 5 - Full Body Power:
+**Day 5 - Full Body Power:**
 - Compound movements only
 - Lower rep ranges: 3-6 reps
 - Explosive movements when possible
 - Focus on strength development
 
-MUSCLE BUILDING PRINCIPLES:
+**📈 MUSCLE BUILDING PRINCIPLES:**
 - Progressive Overload: Increase weight 2.5-5 lbs weekly
 - Time Under Tension: Control eccentric phase
 - Recovery: 48-72 hours between training same muscles
 - Volume: 10-20 sets per muscle group per week
 
-EXPECTED RESULTS:
+**🎯 EXPECTED RESULTS:**
 - Beginner gains: 1-2 lbs muscle per month
 - Strength increases: 5-15% monthly improvements
 - Visible changes: 6-8 weeks with proper nutrition
 - Advanced gains: 0.5-1 lb muscle per month
 
-This recommendation leverages exercise database insights and evidence-based muscle building protocols.
-
-{format_daily_plan_for_recommendation("muscle_gain", "beginner", datetime.now().strftime("%A"))}
+*This recommendation leverages exercise database insights and evidence-based muscle building protocols.*
 """
     
     return {
@@ -623,8 +665,21 @@ This recommendation leverages exercise database insights and evidence-based musc
     }
 
 
-def generate_general_fitness_recommendation(age, weight, exercises, images):
+def generate_general_fitness_recommendation(age, weight, height, exercises, images):
     """Generate general fitness recommendation with vision status"""
+    # Use provided height or default values if height is not provided
+    height_cm = 170  # Default height in cm
+    height_display = None
+    
+    if height and str(height).strip():  # Check for non-empty value
+        try:
+            height_inches = float(height)
+            height_cm = height_inches * 2.54  # Convert inches to cm
+            height_display = height_inches
+        except (ValueError, TypeError):
+            height_cm = 170  # Fallback default
+            height_display = None
+    
     # Add image analysis status
     image_status = "❌ NO IMAGES ANALYZED"
     if images and len(images) > 0:
@@ -648,6 +703,7 @@ def generate_general_fitness_recommendation(age, weight, exercises, images):
 **👤 YOUR FITNESS PROFILE:**
 - Age: {age} years
 - Weight: {weight} lbs
+- Height: {str(height_display) + " inches" if height_display else "Not specified"} ({height_cm:.1f} cm)
 - Goal: Complete fitness and health optimization
 - Approach: Balanced training for all fitness components
 
@@ -709,8 +765,6 @@ def generate_general_fitness_recommendation(age, weight, exercises, images):
 - Increased daily energy levels
 
 *This program combines database-driven exercise selection with comprehensive fitness principles for optimal health outcomes.*
-
-{format_daily_plan_for_recommendation("general", "beginner", datetime.now().strftime("%A"))}
 """
     
     return {
@@ -726,7 +780,21 @@ def get_basic_fallback_recommendation(user_data, images):
     age = int(user_data.get('age', 30))
     gender = user_data.get('gender', 'male')
     weight = float(user_data.get('weight', 150))
+    height = user_data.get('height', None)
     agent_type = user_data.get('agent_type', 'general')
+    
+    # Process height for display
+    height_display = None
+    height_cm = 170  # Default height in cm
+    
+    if height and str(height).strip():  # Check for non-empty value
+        try:
+            height_inches = float(height)
+            height_cm = height_inches * 2.54  # Convert inches to cm
+            height_display = height_inches
+        except (ValueError, TypeError):
+            height_cm = 170  # Fallback default
+            height_display = None
     
     # Add image analysis status
     image_status = "❌ NO IMAGES ANALYZED"
@@ -741,6 +809,7 @@ def get_basic_fallback_recommendation(user_data, images):
 *Simplified approach when advanced features are unavailable*
 
 **Your Profile:** {gender}, age {age}, weight {weight} lbs
+- Height: {str(height_display) + " inches" if height_display else "Not specified"} ({height_cm:.1f} cm)
 **Goal:** {agent_type.replace('_', ' ').title()}
 
 **Weekly Exercise Plan:**
@@ -782,20 +851,6 @@ async def get_fitness_recommendation_hybrid(images, user_data):
     except Exception as e:
         logger.error(f"Hybrid recommendation failed: {e}")
         return get_fallback_fitness_recommendation(user_data, images)
-
-
-# Additional compatibility functions
-def get_enhanced_fitness_recommendation_sync(age: int, gender: str, weight: float, height: float = 170, goal: str = "general") -> Dict[str, Any]:
-    """Synchronous wrapper for enhanced fitness recommendations - simplified version"""
-    # This function is used by ai.py but we'll provide a simplified response
-    # since the full MCP functionality has been replaced by Agentic RAG
-    return {
-        "error": "Enhanced MCP recommendations not available - using Agentic RAG system instead",
-        "workout_plan": None,
-        "nutrition_plan": None,
-        "exercise_recommendations": None,
-        "note": "Use the main fitness recommendation system for enhanced features"
-    }
 
 
 # Sync wrappers for backward compatibility

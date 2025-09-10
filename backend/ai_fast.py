@@ -18,7 +18,7 @@ client = AzureOpenAI(
     base_url=f"{azure_endpoint}/openai/deployments/{model}",
 )
 
-def get_fast_fitness_recommendation(image_paths, gender, age, weight, agent_type="general", health_conditions=""):
+def get_fast_fitness_recommendation(image_paths, gender, age, weight, height=None, agent_type="general", health_conditions=""):
     """
     Fast fitness recommendation using only GPT-4o vision - no MCP overhead
     """
@@ -42,6 +42,8 @@ def get_fast_fitness_recommendation(image_paths, gender, age, weight, agent_type
         specific_guidance = agent_prompts.get(agent_type, agent_prompts["general"])
 
         user_info = f"Analyze this {gender}, {age} years old, {weight} lbs person's image."
+        if height:
+            user_info += f" They are {height} inches tall."
         if health_conditions.strip():
             user_info += f" Health/Exercise Notes: {health_conditions}"
 
@@ -66,8 +68,8 @@ def get_fast_fitness_recommendation(image_paths, gender, age, weight, agent_type
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_images[0]}"}}
                 ]}
             ],
-            max_tokens=800,  # Shorter response for speed
-            temperature=0.5,  # More focused responses
+            max_tokens=int(os.getenv("AI_FAST_MAX_TOKENS", "800")),
+            temperature=float(os.getenv("AI_FAST_TEMPERATURE", "0.5")),
         )
         
         return response.choices[0].message.content

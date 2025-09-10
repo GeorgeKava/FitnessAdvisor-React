@@ -5,17 +5,22 @@ import os
 import uuid
 import logging
 import asyncio
+from datetime import datetime
 from dotenv import load_dotenv
-from ai import get_fitness_recommendation
+from ai import get_fitness_recommendation, identify_food_from_image, get_food_recommendations
 from ai_fast import get_fast_fitness_recommendation
 from mcp_client import (get_fitness_recommendation_mcp, get_fitness_recommendation_with_rag, 
                        get_fitness_recommendation_hybrid, get_fallback_fitness_recommendation)
+from voice_chat import voice_chat_bp, store_user_data_in_azure_search, store_weekly_plan_in_azure_search, store_food_recommendations_in_azure_search
 
 app = Flask(__name__)
 CORS(app)
 # Initialize camera instance if needed for other parts, but not for frontend capture processing
 # camera = cv2.VideoCapture(0) 
 capture_folder = 'captured_images'
+
+# Register the voice chat blueprint
+app.register_blueprint(voice_chat_bp, url_prefix='/api')
 
 load_dotenv()
 
@@ -38,13 +43,19 @@ def fitness_recommendation():
     gender = request.form.get('gender')
     age = request.form.get('age')
     weight = request.form.get('weight')
+    height = request.form.get('height')
     health_conditions = request.form.get('health_conditions', '')  # Optional field
     agent_type = request.form.get('agent_type', 'general')  # Default to 'general' if not provided
+    user_email = request.form.get('user_email', '')  # User email for storing in Azure Search
     fast_mode = request.form.get('fast_mode', 'false').lower() == 'true'  # Check for fast mode
     use_rag = request.form.get('use_rag', 'false').lower() == 'true'  # Check for RAG mode
     use_mcp = request.form.get('use_mcp', 'false').lower() == 'true'  # Check for MCP mode
     use_hybrid = request.form.get('use_hybrid', 'false').lower() == 'true'  # Check for Hybrid mode
-    logging.info(f"Received user data: Gender={gender}, Age={age}, Weight={weight}, HealthConditions={health_conditions}, Agent={agent_type}, FastMode={fast_mode}, UseRAG={use_rag}, UseMCP={use_mcp}, UseHybrid={use_hybrid}")
+    
+    # Debug height value
+    logging.info(f"Height value received: '{height}' (type: {type(height)}, length: {len(height) if height else 'None'})")
+    
+    logging.info(f"Received user data: Gender={gender}, Age={age}, Weight={weight}, Height={height}, HealthConditions={health_conditions}, Agent={agent_type}, FastMode={fast_mode}, UseRAG={use_rag}, UseMCP={use_mcp}, UseHybrid={use_hybrid}")
 
     images = []
     
@@ -106,6 +117,7 @@ def fitness_recommendation():
                 'gender': gender,
                 'age': age,
                 'weight': weight,
+                'height': height,
                 'health_conditions': health_conditions,
                 'agent_type': agent_type
             }
@@ -117,6 +129,7 @@ def fitness_recommendation():
                 'gender': gender,
                 'age': age,
                 'weight': weight,
+                'height': height,
                 'health_conditions': health_conditions,
                 'agent_type': agent_type
             }
@@ -128,6 +141,7 @@ def fitness_recommendation():
                 'gender': gender,
                 'age': age,
                 'weight': weight,
+                'height': height,
                 'health_conditions': health_conditions,
                 'agent_type': agent_type
             }
@@ -135,10 +149,10 @@ def fitness_recommendation():
         elif use_mcp:
             # Use MCP (Model Context Protocol) for structured recommendations
             logging.info("Using MCP mode for recommendation")
-            result = asyncio.run(get_fitness_recommendation_mcp(images, gender, age, weight, agent_type, health_conditions))
+            result = asyncio.run(get_fitness_recommendation_mcp(images, gender, age, weight, height, agent_type, health_conditions))
         elif fast_mode:
             # Use fast mode for quicker responses
-            result = get_fast_fitness_recommendation(images, gender, age, weight, agent_type, health_conditions)
+            result = get_fast_fitness_recommendation(images, gender, age, weight, height, agent_type, health_conditions)
             logging.info("Using fast mode for recommendation")
             
             # Check if fast mode failed and fallback to enhanced RAG
@@ -148,13 +162,14 @@ def fitness_recommendation():
                     'gender': gender,
                     'age': age,
                     'weight': weight,
+                    'height': height,
                     'health_conditions': health_conditions,
                     'agent_type': agent_type
                 }
                 result = get_fallback_fitness_recommendation(user_data, images)
         else:
             # Use standard enhanced mode
-            result = get_fitness_recommendation(images, gender, age, weight, agent_type, health_conditions)
+            result = get_fitness_recommendation(images, gender, age, weight, height, agent_type, health_conditions)
             logging.info("Using enhanced mode for recommendation")
             
             # Check if enhanced mode failed and fallback to enhanced RAG
@@ -164,6 +179,7 @@ def fitness_recommendation():
                     'gender': gender,
                     'age': age,
                     'weight': weight,
+                    'height': height,
                     'health_conditions': health_conditions,
                     'agent_type': agent_type
                 }
@@ -194,11 +210,83 @@ def fitness_recommendation():
             # If you want this to be a server error that triggers frontend's catch:
             # return jsonify({'error': recommendation_text, 'source': 'ai_processing'}), 500
         
+        # Store user profile and recommendations in Azure Search if user_email is provided
+        if user_email and user_email.strip():
+            try:
+                user_profile = {
+                    'email': user_email,
+                    'name': user_email.split('@')[0],  # Use email prefix as name if no name provided
+                    'age': int(age) if age else None,
+                    'weight': int(weight) if weight else None,
+                    'height': int(height) if height else None,
+                    'gender': gender,
+                    'fitnessLevel': 'beginner',  # Default value
+                    'agentType': agent_type,
+                    'medicalConditions': [health_conditions] if health_conditions else [],
+                    'createdAt': datetime.now().isoformat() + 'Z',
+                    'isActive': True,
+                    'lastLoginAt': datetime.now().isoformat() + 'Z'
+                }
+                
+                # Store the profile and recommendation in Azure Search
+                success = store_user_data_in_azure_search(
+                    user_email=user_email,
+                    user_profile=user_profile,
+                    progress_data=[],  # No progress data from web interface
+                    recommendations=[{
+                        'content': recommendation_text,
+                        'timestamp': datetime.now().isoformat() + 'Z',
+                        'agent_type': agent_type
+                    }]
+                )
+                
+                if success:
+                    logging.info(f"Successfully stored user data in Azure Search for {user_email}")
+                else:
+                    logging.warning(f"Failed to store user data in Azure Search for {user_email}")
+                    
+            except Exception as e:
+                logging.error(f"Error storing user data in Azure Search: {e}")
+        
         logging.info(f"Recommendation result: {recommendation_text}")
         return jsonify({'recommendation': recommendation_text})
     except Exception as e:
         logging.error(f"Unexpected error during recommendation generation: {e}", exc_info=True)
         return jsonify({'error': 'An internal server error occurred while generating recommendations.'}), 500
+
+@app.route('/api/get-weekly-plan', methods=['GET'])
+def get_weekly_plan():
+    """Get the latest weekly plan for a user from Azure Search"""
+    logging.info("--- Get Weekly Plan Endpoint Hit ---")
+    
+    try:
+        user_email = request.args.get('user_email')
+        if not user_email:
+            return jsonify({"error": "User email is required"}), 400
+        
+        # Import the function to get latest weekly plan from storage
+        from voice_chat import get_latest_weekly_plan_from_storage
+        
+        weekly_plan = get_latest_weekly_plan_from_storage(user_email)
+        
+        if weekly_plan:
+            logging.info(f"Found weekly plan for user: {user_email}")
+            return jsonify({
+                "success": True,
+                "weekly_plan": weekly_plan
+            })
+        else:
+            logging.info(f"No weekly plan found for user: {user_email}")
+            return jsonify({
+                "success": False,
+                "message": "No weekly plan found. Create a weekly plan first."
+            })
+        
+    except Exception as e:
+        logging.error(f"Error getting weekly plan: {e}")
+        return jsonify({
+            "error": f"Failed to get weekly plan: {str(e)}"
+        }), 500
 
 @app.route('/api/generate-weekly-plan', methods=['POST'])
 def generate_weekly_plan():
@@ -219,13 +307,143 @@ def generate_weekly_plan():
         
         weekly_plan = generate_weekly_fitness_plan(user_profile, base_recommendation)
         
+        # Store weekly plan in Azure Search if user email is provided
+        user_email = user_profile.get('email')
+        if user_email and user_email.strip():
+            try:
+                success = store_weekly_plan_in_azure_search(user_email, weekly_plan)
+                
+                if success:
+                    logging.info(f"Successfully stored weekly plan in Azure Search for {user_email}")
+                else:
+                    logging.warning(f"Failed to store weekly plan in Azure Search for {user_email}")
+                    
+            except Exception as e:
+                logging.error(f"Error storing weekly plan in Azure Search: {e}")
+        
         return jsonify(weekly_plan)
         
     except Exception as e:
         logging.error(f"Error generating weekly plan: {e}", exc_info=True)
         return jsonify({'error': 'Failed to generate weekly plan'}), 500
 
-@app.route('/api/video_feed')
+@app.route('/api/food_recommendations', methods=['POST'])
+def food_recommendations():
+    """Get personalized food recommendations based on user's fitness goals and current recommendations"""
+    logging.info("--- Food Recommendations Endpoint Hit ---")
+    
+    try:
+        user_email = request.form.get('user_email', '')
+        gender = request.form.get('gender')
+        age = request.form.get('age')
+        weight = request.form.get('weight')
+        height = request.form.get('height')
+        fitness_goal = request.form.get('fitness_goal', 'general')  # weight_loss, muscle_gain, maintenance
+        dietary_restrictions = request.form.get('dietary_restrictions', '')
+        meal_preferences = request.form.get('meal_preferences', '')  # vegetarian, vegan, keto, etc.
+        
+        if not all([gender, age, weight, height]):
+            return jsonify({
+                "error": "Missing required parameters. Need gender, age, weight, and height."
+            }), 400
+        
+        # Get food recommendations
+        food_recommendations = get_food_recommendations(
+            gender=gender,
+            age=int(age),
+            weight=float(weight),
+            height=float(height),
+            fitness_goal=fitness_goal,
+            dietary_restrictions=dietary_restrictions,
+            meal_preferences=meal_preferences,
+            user_email=user_email
+        )
+        
+        # Store food recommendations in Azure Search if user email provided
+        if user_email and food_recommendations:
+            try:
+                store_food_recommendations_in_azure_search(
+                    user_email=user_email,
+                    recommendations_data={
+                        "gender": gender,
+                        "age": int(age),
+                        "weight": float(weight),
+                        "height": float(height),
+                        "fitness_goal": fitness_goal,
+                        "dietary_restrictions": dietary_restrictions,
+                        "meal_preferences": meal_preferences,
+                        "recommendations": food_recommendations,
+                        "created_at": datetime.now().isoformat()
+                    }
+                )
+                logging.info(f"Stored food recommendations for user: {user_email}")
+            except Exception as storage_error:
+                logging.error(f"Failed to store food recommendations: {storage_error}")
+        
+        return jsonify({
+            "success": True,
+            "food_recommendations": food_recommendations
+        })
+        
+    except Exception as e:
+        logging.error(f"Error in food recommendations: {e}")
+        return jsonify({
+            "error": f"Failed to generate food recommendations: {str(e)}"
+        }), 500
+
+@app.route('/api/identify_food', methods=['POST'])
+def identify_food():
+    """Identify food/ingredient from uploaded image and provide analysis or recipes"""
+    logging.info("--- Food Identification Endpoint Hit ---")
+    
+    try:
+        # Handle image upload
+        if 'image' not in request.files:
+            return jsonify({"error": "No image file provided"}), 400
+        
+        image_file = request.files['image']
+        if image_file.filename == '':
+            return jsonify({"error": "No image file selected"}), 400
+        
+        # Get user context for personalized advice
+        user_email = request.form.get('user_email', '')
+        fitness_goal = request.form.get('fitness_goal', 'general')
+        dietary_restrictions = request.form.get('dietary_restrictions', '')
+        analysis_type = request.form.get('analysis_type', 'food')  # 'food' or 'ingredient'
+        
+        # Save the uploaded image temporarily
+        image_filename = f"food_identification_{uuid.uuid4()}.jpg"
+        image_path = os.path.join(capture_folder, image_filename)
+        image_file.save(image_path)
+        
+        # Identify the food/ingredient and get analysis or recipes
+        food_analysis = identify_food_from_image(
+            image_path=image_path,
+            analysis_type=analysis_type,
+            fitness_goal=fitness_goal,
+            dietary_restrictions=dietary_restrictions,
+            user_email=user_email
+        )
+        
+        # Clean up the temporary image file
+        try:
+            os.remove(image_path)
+        except Exception as cleanup_error:
+            logging.warning(f"Failed to cleanup temporary image: {cleanup_error}")
+        
+        return jsonify({
+            "success": True,
+            "analysis_type": analysis_type,
+            "food_analysis": food_analysis
+        })
+        
+    except Exception as e:
+        logging.error(f"Error in food identification: {e}")
+        return jsonify({
+            "error": f"Failed to identify food: {str(e)}"
+        }), 500
+
+@app.route('/video_feed')
 def video_feed():
     # This is for streaming server's camera, not directly related to frontend capture processing
     camera_device = cv2.VideoCapture(0) # Ensure camera is initialized here if used

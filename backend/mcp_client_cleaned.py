@@ -65,7 +65,7 @@ class FitnessMCPClient:
 
 # MAIN FUNCTIONS USED BY APP.PY
 
-async def get_fitness_recommendation_mcp(images, gender, age, weight, agent_type, health_conditions=""):
+async def get_fitness_recommendation_mcp(images, gender, age, weight, height, agent_type, health_conditions=""):
     """Get MCP-enhanced fitness recommendation with fallback"""
     
     # Check if MCP is disabled via environment variable
@@ -75,6 +75,7 @@ async def get_fitness_recommendation_mcp(images, gender, age, weight, agent_type
             'gender': gender,
             'age': age,
             'weight': weight,
+            'height': height,
             'health_conditions': health_conditions,
             'agent_type': agent_type
         }
@@ -85,6 +86,7 @@ async def get_fitness_recommendation_mcp(images, gender, age, weight, agent_type
             'gender': gender,
             'age': age,
             'weight': weight,
+            'height': height,
             'health_conditions': health_conditions,
             'agent_type': agent_type
         }
@@ -98,6 +100,7 @@ async def get_fitness_recommendation_mcp(images, gender, age, weight, agent_type
             'gender': gender,
             'age': age,
             'weight': weight,
+            'height': height,
             'health_conditions': health_conditions,
             'agent_type': agent_type
         }
@@ -109,6 +112,7 @@ def get_fallback_fitness_recommendation(user_data, images):
     age = int(user_data.get('age', 30))
     gender = user_data.get('gender', 'male')
     weight = float(user_data.get('weight', 150))
+    height = user_data.get('height')  # Height in inches
     agent_type = user_data.get('agent_type', 'general')
     health_conditions = user_data.get('health_conditions', '')
     
@@ -216,6 +220,7 @@ def get_azure_search_enhanced_fallback_sync(user_data, images, mcp_client):
     age = int(user_data.get('age', 30))
     gender = user_data.get('gender', 'male')
     weight = float(user_data.get('weight', 150))
+    height = user_data.get('height', None)
     agent_type = user_data.get('agent_type', 'general')
     health_conditions = user_data.get('health_conditions', '')
     
@@ -229,6 +234,13 @@ def get_azure_search_enhanced_fallback_sync(user_data, images, mcp_client):
         "available_equipment": ["bodyweight", "dumbbells"],
         "exercise_type": agent_type
     }
+    
+    # Add height to profile if provided and not empty
+    if height and str(height).strip():
+        try:
+            user_profile["height"] = float(height)
+        except (ValueError, TypeError):
+            pass  # Skip if height conversion fails
     
     # Search for relevant exercises using Azure Search (sync version)
     relevant_exercises = []
@@ -262,11 +274,11 @@ def get_azure_search_enhanced_fallback_sync(user_data, images, mcp_client):
     
     # Generate recommendation based on agent type
     if agent_type == 'weight_loss':
-        return generate_weight_loss_recommendation(age, gender, weight, health_conditions, relevant_exercises, performance_benchmarks, images)
+        return generate_weight_loss_recommendation(age, gender, weight, height, health_conditions, relevant_exercises, performance_benchmarks, images)
     elif agent_type == 'muscle_gain':
-        return generate_muscle_gain_recommendation(age, gender, weight, relevant_exercises, images)
+        return generate_muscle_gain_recommendation(age, gender, weight, height, relevant_exercises, images)
     else:
-        return generate_general_fitness_recommendation(age, weight, relevant_exercises, images)
+        return generate_general_fitness_recommendation(age, weight, height, relevant_exercises, images)
 
 
 def search_exercises_sync(search_client, search_term, user_profile):
@@ -378,13 +390,26 @@ def search_performance_benchmarks_sync(search_client, goal_type, user_profile):
         return []
 
 
-def generate_weight_loss_recommendation(age, gender, weight, health_conditions, exercises, benchmarks, images):
+def generate_weight_loss_recommendation(age, gender, weight, height, health_conditions, exercises, benchmarks, images):
     """Generate weight loss recommendation with vision status"""
-    # Calculate BMR and daily calories
+    # Use provided height or default values if height is not provided
+    height_cm = 170  # Default height in cm
+    height_display = None
+    
+    if height and str(height).strip():  # Check for non-empty value
+        try:
+            height_inches = float(height)
+            height_cm = height_inches * 2.54  # Convert inches to cm
+            height_display = height_inches
+        except (ValueError, TypeError):
+            height_cm = 170  # Fallback default
+            height_display = None
+    
+    # Calculate BMR and daily calories using actual height
     if gender.lower() == 'male':
-        bmr = 88.362 + (13.397 * weight * 0.453592) + (4.799 * 175) - (5.677 * age)
+        bmr = 88.362 + (13.397 * weight * 0.453592) + (4.799 * height_cm) - (5.677 * age)
     else:
-        bmr = 447.593 + (9.247 * weight * 0.453592) + (3.098 * 165) - (4.330 * age)
+        bmr = 447.593 + (9.247 * weight * 0.453592) + (3.098 * height_cm) - (4.330 * age)
     
     daily_calories = int(bmr * 1.55)
     target_calories = daily_calories - 500
@@ -423,6 +448,7 @@ def generate_weight_loss_recommendation(age, gender, weight, health_conditions, 
 - Age: {age} years
 - Gender: {gender}
 - Weight: {weight} lbs ({weight * 0.453592:.1f} kg)
+- Height: {str(height_display) + " inches" if height_display else "Not specified"} ({height_cm:.1f} cm)
 - Health conditions: {health_conditions or 'None specified'}
 - Goal: Weight Loss & Fat Burning
 
@@ -517,10 +543,28 @@ def generate_weight_loss_recommendation(age, gender, weight, health_conditions, 
     }
 
 
-def generate_muscle_gain_recommendation(age, gender, weight, exercises, images):
+def generate_muscle_gain_recommendation(age, gender, weight, height, exercises, images):
     """Generate muscle gain recommendation with vision status"""
-    # Muscle building calculations
-    daily_calories = int((88.362 + (13.397 * weight * 0.453592) + (4.799 * 175) - (5.677 * age)) * 1.725)
+    # Use provided height or default values if height is not provided
+    height_cm = 170  # Default height in cm
+    height_display = None
+    
+    if height and str(height).strip():  # Check for non-empty value
+        try:
+            height_inches = float(height)
+            height_cm = height_inches * 2.54  # Convert inches to cm
+            height_display = height_inches
+        except (ValueError, TypeError):
+            height_cm = 170  # Fallback default
+            height_display = None
+    
+    # Muscle building calculations using actual height
+    if gender.lower() == 'male':
+        bmr = 88.362 + (13.397 * weight * 0.453592) + (4.799 * height_cm) - (5.677 * age)
+    else:
+        bmr = 447.593 + (9.247 * weight * 0.453592) + (3.098 * height_cm) - (4.330 * age)
+    
+    daily_calories = int(bmr * 1.725)  # Activity factor for muscle building
     surplus_calories = daily_calories + 300
     protein_grams = int(weight * 0.453592 * 2.2)  # 2.2g per kg for muscle gain
     
@@ -549,6 +593,7 @@ def generate_muscle_gain_recommendation(age, gender, weight, exercises, images):
 - Age: {age} years
 - Gender: {gender}
 - Weight: {weight} lbs ({weight * 0.453592:.1f} kg)
+- Height: {str(height_display) + " inches" if height_display else "Not specified"} ({height_cm:.1f} cm)
 - Goal: Muscle Growth & Strength Development
 
 **🔥 MUSCLE BUILDING CALCULATIONS:**
@@ -620,8 +665,21 @@ def generate_muscle_gain_recommendation(age, gender, weight, exercises, images):
     }
 
 
-def generate_general_fitness_recommendation(age, weight, exercises, images):
+def generate_general_fitness_recommendation(age, weight, height, exercises, images):
     """Generate general fitness recommendation with vision status"""
+    # Use provided height or default values if height is not provided
+    height_cm = 170  # Default height in cm
+    height_display = None
+    
+    if height and str(height).strip():  # Check for non-empty value
+        try:
+            height_inches = float(height)
+            height_cm = height_inches * 2.54  # Convert inches to cm
+            height_display = height_inches
+        except (ValueError, TypeError):
+            height_cm = 170  # Fallback default
+            height_display = None
+    
     # Add image analysis status
     image_status = "❌ NO IMAGES ANALYZED"
     if images and len(images) > 0:
@@ -645,6 +703,7 @@ def generate_general_fitness_recommendation(age, weight, exercises, images):
 **👤 YOUR FITNESS PROFILE:**
 - Age: {age} years
 - Weight: {weight} lbs
+- Height: {str(height_display) + " inches" if height_display else "Not specified"} ({height_cm:.1f} cm)
 - Goal: Complete fitness and health optimization
 - Approach: Balanced training for all fitness components
 
@@ -721,7 +780,21 @@ def get_basic_fallback_recommendation(user_data, images):
     age = int(user_data.get('age', 30))
     gender = user_data.get('gender', 'male')
     weight = float(user_data.get('weight', 150))
+    height = user_data.get('height', None)
     agent_type = user_data.get('agent_type', 'general')
+    
+    # Process height for display
+    height_display = None
+    height_cm = 170  # Default height in cm
+    
+    if height and str(height).strip():  # Check for non-empty value
+        try:
+            height_inches = float(height)
+            height_cm = height_inches * 2.54  # Convert inches to cm
+            height_display = height_inches
+        except (ValueError, TypeError):
+            height_cm = 170  # Fallback default
+            height_display = None
     
     # Add image analysis status
     image_status = "❌ NO IMAGES ANALYZED"
@@ -736,6 +809,7 @@ def get_basic_fallback_recommendation(user_data, images):
 *Simplified approach when advanced features are unavailable*
 
 **Your Profile:** {gender}, age {age}, weight {weight} lbs
+- Height: {str(height_display) + " inches" if height_display else "Not specified"} ({height_cm:.1f} cm)
 **Goal:** {agent_type.replace('_', ' ').title()}
 
 **Weekly Exercise Plan:**

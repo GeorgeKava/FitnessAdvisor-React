@@ -13,12 +13,13 @@ function FitnessAdvisorPage({ user }) {
   const [gender, setGender] = useState('');
   const [age, setAge] = useState('');
   const [weight, setWeight] = useState('');
+  const [height, setHeight] = useState('');
   const [healthConditions, setHealthConditions] = useState('');
   const [agentType, setAgentType] = useState('general');
-  const [fastMode, setFastMode] = useState(true); // Default to fast mode
-  const [useRAG, setUseRAG] = useState(true); // Enable RAG mode to test enhanced system
-  const [useMCP, setUseMCP] = useState(false); // Model Context Protocol mode
-  const [useHybrid, setUseHybrid] = useState(false); // Hybrid RAG + MCP mode
+  const [fastMode, setFastMode] = useState(false); // Default to full analysis mode
+  const [useRAG, setUseRAG] = useState(true); // Enable RAG mode for full analysis
+  const [useMCP, setUseMCP] = useState(true); // Model Context Protocol mode for full analysis
+  const [useHybrid, setUseHybrid] = useState(true); // Hybrid RAG + MCP mode for full analysis
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [isGeneratingWeeklyPlan, setIsGeneratingWeeklyPlan] = useState(false);
@@ -29,39 +30,76 @@ function FitnessAdvisorPage({ user }) {
   // Load profile data on component mount
   useEffect(() => {
     const loadProfileData = () => {
+      console.log('FitnessAdvisorPage: Loading profile data...');
+      
       const savedProfile = localStorage.getItem('userProfile');
       if (savedProfile) {
-        const profile = JSON.parse(savedProfile);
-        
-        // Only auto-fill if the fields are empty
-        if (!gender && profile.sex) setGender(profile.sex);
-        if (!age && profile.age) setAge(profile.age);
-        if (!weight && profile.weight) setWeight(profile.weight);
-        if (!healthConditions && profile.healthConditions) setHealthConditions(profile.healthConditions);
-        
-        // Map fitness agent to existing options
-        const agentMapping = {
-          'personal_trainer': 'general',
-          'strength_coach': 'strength',
-          'cardio_specialist': 'cardio',
-          'nutrition_expert': 'general',
-          'weight_loss_coach': 'weight_loss',
-          'muscle_building_coach': 'muscle_gain'
-        };
-        
-        if (profile.fitnessAgent) {
-          setAgentType(agentMapping[profile.fitnessAgent] || 'general');
+        try {
+          const profile = JSON.parse(savedProfile);
+          console.log('FitnessAdvisorPage: Profile data loaded:', profile);
+          
+          // Handle gender field with both sex and gender field names
+          const profileGender = profile.sex || profile.gender;
+          if (!gender && profileGender) {
+            console.log('FitnessAdvisorPage: Setting gender to:', profileGender);
+            setGender(profileGender);
+          }
+          
+          // Only auto-fill if the fields are empty
+          if (!age && profile.age) setAge(profile.age);
+          if (!weight && profile.weight) setWeight(profile.weight);
+          if (!height && profile.height) setHeight(profile.height);
+          if (!healthConditions && profile.healthConditions) setHealthConditions(profile.healthConditions);
+          
+          // Map fitness agent to existing options
+          const agentMapping = {
+            'personal_trainer': 'general',
+            'strength_coach': 'strength',
+            'cardio_specialist': 'cardio',
+            'nutrition_expert': 'general',
+            'weight_loss_coach': 'weight_loss',
+            'muscle_building_coach': 'muscle_gain'
+          };
+          
+          if (profile.fitnessAgent || profile.agentType) {
+            const agentValue = profile.fitnessAgent || profile.agentType;
+            setAgentType(agentMapping[agentValue] || 'general');
+          }
+          
+          // Only show profile loaded message if we actually loaded some data
+          if (profileGender || profile.age || profile.weight || profile.height || profile.fitnessAgent || profile.agentType || profile.healthConditions) {
+            setProfileLoaded(true);
+          }
+        } catch (error) {
+          console.error('FitnessAdvisorPage: Error loading profile data:', error);
         }
-        
-        // Only show profile loaded message if we actually loaded some data
-        if (profile.sex || profile.age || profile.weight || profile.fitnessAgent || profile.healthConditions) {
-          setProfileLoaded(true);
+      }
+      
+      // Also check for user-specific profile data if user is available
+      if (user?.email) {
+        const userSpecificProfile = localStorage.getItem(`userProfile_${user.email}`);
+        if (userSpecificProfile) {
+          try {
+            const profile = JSON.parse(userSpecificProfile);
+            console.log('FitnessAdvisorPage: User-specific profile loaded:', profile);
+            
+            const profileGender = profile.sex || profile.gender;
+            if (!gender && profileGender) {
+              setGender(profileGender);
+            }
+            
+            if (!age && profile.age) setAge(profile.age);
+            if (!weight && profile.weight) setWeight(profile.weight);
+            if (!height && profile.height) setHeight(profile.height);
+          } catch (error) {
+            console.error('FitnessAdvisorPage: Error loading user-specific profile:', error);
+          }
         }
       }
     };
     
     loadProfileData();
-  }, []); // Empty dependency array to run only once
+  }, [user]); // Include user in dependency array
 
   useEffect(() => {
     if (showVideo) {
@@ -98,7 +136,17 @@ function FitnessAdvisorPage({ user }) {
       
       const currentProfile = JSON.parse(localStorage.getItem('userProfile') || '{}');
       const updatedProfile = { ...currentProfile, ...updatedData };
+      
+      // Ensure gender/sex field consistency - store both for compatibility
+      if (updatedData.sex) {
+        updatedProfile.gender = updatedData.sex; // Also store as gender
+      }
+      if (updatedData.gender) {
+        updatedProfile.sex = updatedData.gender; // Also store as sex
+      }
+      
       localStorage.setItem('userProfile', JSON.stringify(updatedProfile));
+      console.log('FitnessAdvisorPage: Profile saved:', updatedProfile);
 
       // Also update registered user data if user is registered
       const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
@@ -110,8 +158,22 @@ function FitnessAdvisorPage({ user }) {
             ...registeredUsers[userIndex],
             ...updatedData
           };
+          
+          // Ensure consistency in registered users too
+          if (updatedData.sex) {
+            registeredUsers[userIndex].gender = updatedData.sex;
+          }
+          if (updatedData.gender) {
+            registeredUsers[userIndex].sex = updatedData.gender;
+          }
+          
           localStorage.setItem('registeredUsers', JSON.stringify(registeredUsers));
         }
+      }
+      
+      // Also store user-specific profile if user email is available
+      if (user?.email) {
+        localStorage.setItem(`userProfile_${user.email}`, JSON.stringify(updatedProfile));
       }
 
       // Brief feedback - hide after 1 second
@@ -155,6 +217,14 @@ function FitnessAdvisorPage({ user }) {
     }
   };
 
+  const handleHeightChange = (e) => {
+    const value = e.target.value;
+    setHeight(value);
+    if (value && !isNaN(value)) {
+      saveProfileData({ height: value });
+    }
+  };
+
   const handleHealthConditionsChange = (e) => {
     const value = e.target.value;
     setHealthConditions(value);
@@ -188,15 +258,8 @@ function FitnessAdvisorPage({ user }) {
     }
     setLoading(true);
     
-    // Set appropriate loading message based on mode
-    let loadingMsg = 'Analyzing images and generating recommendations...';
-    if (useHybrid || (useRAG && useMCP)) {
-      loadingMsg = 'Using Full Analysis for comprehensive fitness recommendations (45-60s)...';
-    } else if (fastMode) {
-      loadingMsg = 'Performing quick analysis and generating recommendations...';
-    } else {
-      loadingMsg = 'Performing detailed analysis and generating comprehensive recommendations...';
-    }
+    // Set loading message for full analysis mode
+    const loadingMsg = 'Using Full Analysis for comprehensive fitness recommendations (45-60s)...';
     
     setLoadingMessage(loadingMsg);
     setError('');
@@ -222,8 +285,10 @@ function FitnessAdvisorPage({ user }) {
     formData.append('gender', gender);
     formData.append('age', age);
     formData.append('weight', weight);
+    formData.append('height', height);
     formData.append('health_conditions', healthConditions);
     formData.append('agent_type', agentType);
+    formData.append('user_email', user?.email || ''); // Add user email for Azure Search storage
     formData.append('fast_mode', fastMode.toString());
     formData.append('use_rag', useRAG.toString());
     formData.append('use_mcp', useMCP.toString());
@@ -340,8 +405,10 @@ function FitnessAdvisorPage({ user }) {
         formData.append('gender', gender);
         formData.append('age', age);
         formData.append('weight', weight);
+        formData.append('height', height);
         formData.append('health_conditions', healthConditions);
         formData.append('agent_type', agentType);
+        formData.append('user_email', user?.email || ''); // Add user email for Azure Search storage
         formData.append('fast_mode', fastMode.toString());
         formData.append('use_rag', useRAG.toString());
         formData.append('use_mcp', useMCP.toString());
@@ -522,6 +589,10 @@ function FitnessAdvisorPage({ user }) {
           <label htmlFor="weight" className="form-label">Weight (lbs)</label>
           <input type="number" id="weight" className="form-control" value={weight} onChange={handleWeightChange} placeholder="e.g., 150" required />
         </div>
+        <div className="col-md-3">
+          <label htmlFor="height" className="form-label">Height (inches)</label>
+          <input type="number" id="height" className="form-control" value={height} onChange={handleHeightChange} placeholder="e.g., 70" required />
+        </div>
       </div>
 
       {/* Health Conditions and Preferences */}
@@ -542,63 +613,6 @@ function FitnessAdvisorPage({ user }) {
           <div className="form-text">
             <i className="fas fa-info-circle me-1"></i>
             Share any health conditions, injuries, physical limitations, or exercise preferences to get safer and more personalized recommendations.
-          </div>
-        </div>
-      </div>
-
-      {/* Analysis Mode Options */}
-      <div className="row mb-3">
-        <div className="col-12">
-          <h6 className="mb-3">Analysis Mode <i className="fas fa-cog text-muted"></i></h6>
-          
-          {/* Fast Mode */}
-          <div className="form-check form-switch mb-2">
-            <input 
-              className="form-check-input" 
-              type="checkbox" 
-              id="fastMode" 
-              checked={fastMode} 
-              onChange={(e) => setFastMode(e.target.checked)} 
-            />
-            <label className="form-check-label" htmlFor="fastMode">
-              <strong>Quick Analysis</strong> <span className="text-muted">(15-30 seconds, basic recommendations)</span>
-            </label>
-          </div>
-          
-          {/* Full Analysis Mode (formerly Hybrid) */}
-          <div className="form-check form-switch mb-2">
-            <input 
-              className="form-check-input" 
-              type="checkbox" 
-              id="useHybrid" 
-              checked={useHybrid || (useRAG && useMCP)} 
-              onChange={(e) => {
-                if (e.target.checked) {
-                  setUseHybrid(true);
-                  setUseRAG(true);
-                  setUseMCP(true);
-                  setFastMode(false);
-                } else {
-                  setUseHybrid(false);
-                  setUseRAG(false);
-                  setUseMCP(false);
-                }
-              }} 
-            />
-            <label className="form-check-label" htmlFor="useHybrid">
-              <strong>🚀 Full Analysis</strong> <span className="text-muted">(Comprehensive recommendations using all available technologies, 45-60 seconds)</span>
-            </label>
-          </div>
-          
-          {/* Mode explanation */}
-          <div className="alert alert-info py-2 mt-2" role="alert">
-            <i className="fas fa-info-circle me-2"></i>
-            <small>
-              <strong>Tip:</strong> 
-              {(useHybrid || (useRAG && useMCP)) && " 🚀 Full Analysis combines Azure AI Search database insights with structured fitness tools for the most comprehensive recommendations possible!"}
-              {!useHybrid && !useRAG && !useMCP && fastMode && " Quick mode provides fast general recommendations."}
-              {!useHybrid && !useRAG && !useMCP && !fastMode && " Enhanced mode provides detailed analysis with comprehensive recommendations."}
-            </small>
           </div>
         </div>
       </div>
@@ -678,7 +692,7 @@ function FitnessAdvisorPage({ user }) {
             <div>
               <strong>{loadingMessage || 'Processing...'}</strong>
               <div className="small mt-1">
-                {fastMode ? 'Quick analysis: 15-30 seconds' : 'Detailed analysis: 45-90 seconds with enhanced features'}
+                Full analysis: 45-90 seconds with comprehensive recommendations using all available technologies
               </div>
             </div>
           </div>

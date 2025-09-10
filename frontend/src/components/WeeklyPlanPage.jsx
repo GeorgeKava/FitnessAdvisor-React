@@ -65,7 +65,10 @@ const WeeklyPlanPage = ({ user }) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userProfile: recommendation.userProfile,
+          userProfile: {
+            ...recommendation.userProfile,
+            email: user?.email // Ensure email is included for Azure Search storage
+          },
           baseRecommendation: recommendation.recommendation
         }),
       });

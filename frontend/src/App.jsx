@@ -8,6 +8,9 @@ import ProgressPage from './components/ProgressPage';
 import LoginPage from './components/LoginPage';
 import RegisterPage from './components/RegisterPage';
 import ProfilePage from './components/ProfilePage';
+import VoiceChatWebRTC from './components/VoiceChatWebRTC';
+import FoodRecommendationsPage from './components/FoodRecommendationsPage';
+import IdentifyFoodPage from './components/IdentifyFoodPage';
 import NavBar from './components/NavBar';
 import Footer from './components/Footer';
 
@@ -62,7 +65,7 @@ function App() {
             />
             <Route 
               path="/register" 
-              element={user ? <Navigate to="/" /> : <RegisterPage onRegister={handleRegister} />} 
+              element={user ? <Navigate to="/" /> : <RegisterPage onLogin={handleRegister} />} 
             />
             <Route 
               path="/profile" 
@@ -79,6 +82,18 @@ function App() {
             <Route 
               path="/progress" 
               element={user ? <ProgressPage user={user} /> : <Navigate to="/login" />} 
+            />
+            <Route 
+              path="/voice-chat" 
+              element={user ? <VoiceChatWebRTC user={user} /> : <Navigate to="/login" />} 
+            />
+            <Route 
+              path="/food-recommendations" 
+              element={user ? <FoodRecommendationsPage user={user} /> : <Navigate to="/login" />} 
+            />
+            <Route 
+              path="/identify-food" 
+              element={user ? <IdentifyFoodPage user={user} /> : <Navigate to="/login" />} 
             />
             <Route 
               path="/" 

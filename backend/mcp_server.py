@@ -75,6 +75,52 @@ NUTRITION_PLANS = {
             "dinner": "Lean beef with sweet potato and broccoli",
             "snacks": "Protein bar and mixed nuts"
         }
+    },
+    "maintenance": {
+        "name": "Maintenance Plan",
+        "daily_calories": 2200,
+        "macros": {"protein": "25%", "carbs": "50%", "fat": "25%"},
+        "meals": {
+            "breakfast": "Oatmeal with fruits and nuts",
+            "lunch": "Turkey and avocado wrap",
+            "dinner": "Grilled fish with quinoa and mixed vegetables",
+            "snacks": "Yogurt with granola"
+        }
+    }
+}
+
+FOOD_DATABASE = {
+    "apple": {
+        "name": "Apple (medium)",
+        "calories": 95,
+        "macros": {"protein": 0.5, "carbs": 25, "fat": 0.3, "fiber": 4},
+        "vitamins": ["Vitamin C", "Potassium"],
+        "health_rating": "excellent",
+        "timing": "Pre-workout or as snack"
+    },
+    "banana": {
+        "name": "Banana (medium)",
+        "calories": 105,
+        "macros": {"protein": 1.3, "carbs": 27, "fat": 0.4, "fiber": 3},
+        "vitamins": ["Potassium", "Vitamin B6"],
+        "health_rating": "excellent",
+        "timing": "Pre or post-workout"
+    },
+    "chicken_breast": {
+        "name": "Chicken Breast (100g)",
+        "calories": 165,
+        "macros": {"protein": 31, "carbs": 0, "fat": 3.6, "fiber": 0},
+        "vitamins": ["Protein", "B vitamins"],
+        "health_rating": "excellent",
+        "timing": "Post-workout or main meals"
+    },
+    "quinoa": {
+        "name": "Quinoa (1 cup cooked)",
+        "calories": 222,
+        "macros": {"protein": 8, "carbs": 39, "fat": 3.6, "fiber": 5},
+        "vitamins": ["Complete protein", "Iron", "Magnesium"],
+        "health_rating": "excellent", 
+        "timing": "Post-workout or main meals"
     }
 }
 
@@ -101,6 +147,15 @@ async def handle_list_resources() -> list[Resource]:
             mimeType="application/json"
         ))
     
+    # Add food database resources
+    for food_id, food_data in FOOD_DATABASE.items():
+        resources.append(Resource(
+            uri=AnyUrl(f"fitness://foods/{food_id}"),
+            name=f"Food: {food_data['name']}",
+            description=f"Nutritional information for {food_data['name']} - {food_data['calories']} calories",
+            mimeType="application/json"
+        ))
+    
     return resources
 
 @server.read_resource()
@@ -117,6 +172,11 @@ async def handle_read_resource(uri: AnyUrl) -> str:
         plan_id = uri_str.split("/")[-1]
         if plan_id in NUTRITION_PLANS:
             return json.dumps(NUTRITION_PLANS[plan_id], indent=2)
+    
+    elif uri_str.startswith("fitness://foods/"):
+        food_id = uri_str.split("/")[-1]
+        if food_id in FOOD_DATABASE:
+            return json.dumps(FOOD_DATABASE[food_id], indent=2)
     
     raise ValueError(f"Resource not found: {uri}")
 
@@ -198,6 +258,63 @@ async def handle_list_tools() -> list[Tool]:
                 },
                 "required": ["target_muscles"]
             }
+        ),
+        Tool(
+            name="identify_food_nutrition",
+            description="Identify nutritional information for a specific food item",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "food_name": {
+                        "type": "string",
+                        "description": "Name of the food item to analyze"
+                    },
+                    "portion_size": {
+                        "type": "string",
+                        "description": "Portion size (e.g., '1 cup', '100g', 'medium')",
+                        "default": "standard serving"
+                    },
+                    "fitness_goal": {
+                        "type": "string",
+                        "enum": ["weight_loss", "muscle_gain", "maintenance"],
+                        "description": "User's fitness goal for context"
+                    }
+                },
+                "required": ["food_name"]
+            }
+        ),
+        Tool(
+            name="generate_meal_plan",
+            description="Generate a complete meal plan based on nutrition goals",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "daily_calories": {
+                        "type": "integer",
+                        "minimum": 1200,
+                        "maximum": 4000,
+                        "description": "Target daily calories"
+                    },
+                    "fitness_goal": {
+                        "type": "string",
+                        "enum": ["weight_loss", "muscle_gain", "maintenance"],
+                        "description": "Primary fitness goal"
+                    },
+                    "dietary_restrictions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Dietary restrictions or preferences"
+                    },
+                    "meals_per_day": {
+                        "type": "integer",
+                        "minimum": 3,
+                        "maximum": 6,
+                        "description": "Number of meals per day",
+                        "default": 5
+                    }
+                },
+                "required": ["daily_calories", "fitness_goal"]
+            }
         )
     ]
 
@@ -213,6 +330,10 @@ async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[
         return await calculate_nutrition_needs(arguments)
     elif name == "get_exercise_recommendations":
         return await get_exercise_recommendations(arguments)
+    elif name == "identify_food_nutrition":
+        return await identify_food_nutrition(arguments)
+    elif name == "generate_meal_plan":
+        return await generate_meal_plan(arguments)
     else:
         raise ValueError(f"Unknown tool: {name}")
 
@@ -323,6 +444,103 @@ async def get_exercise_recommendations(args: dict[str, Any]) -> list[TextContent
     return [TextContent(
         type="text",
         text=json.dumps(result, indent=2)
+    )]
+
+async def identify_food_nutrition(args: dict[str, Any]) -> list[TextContent]:
+    """Identify nutritional information for a food item"""
+    food_name = args.get("food_name", "").lower()
+    portion_size = args.get("portion_size", "standard serving")
+    fitness_goal = args.get("fitness_goal", "maintenance")
+    
+    # Check if food is in our database
+    food_info = None
+    for food_id, food_data in FOOD_DATABASE.items():
+        if food_id in food_name or food_name in food_data["name"].lower():
+            food_info = food_data.copy()
+            break
+    
+    if not food_info:
+        # Generic nutrition analysis for unknown foods
+        food_info = {
+            "name": food_name.title(),
+            "calories": "Unknown - requires analysis",
+            "macros": {"protein": "Unknown", "carbs": "Unknown", "fat": "Unknown"},
+            "health_rating": "requires_analysis",
+            "recommendation": f"Food identification for '{food_name}' requires image analysis or more specific information."
+        }
+    
+    # Add fitness goal-specific advice
+    goal_advice = {
+        "weight_loss": "Focus on portion control and pair with low-calorie vegetables.",
+        "muscle_gain": "Consider timing around workouts for optimal protein synthesis.",
+        "maintenance": "Include as part of a balanced diet with varied nutrients."
+    }
+    
+    analysis = {
+        "food_item": food_info,
+        "portion_analyzed": portion_size,
+        "fitness_goal": fitness_goal,
+        "goal_specific_advice": goal_advice.get(fitness_goal, goal_advice["maintenance"]),
+        "timing_recommendation": food_info.get("timing", "Any time"),
+        "health_assessment": food_info.get("health_rating", "requires_analysis")
+    }
+    
+    return [TextContent(
+        type="text",
+        text=json.dumps(analysis, indent=2)
+    )]
+
+async def generate_meal_plan(args: dict[str, Any]) -> list[TextContent]:
+    """Generate a complete meal plan"""
+    daily_calories = args.get("daily_calories", 2000)
+    fitness_goal = args.get("fitness_goal", "maintenance")
+    dietary_restrictions = args.get("dietary_restrictions", [])
+    meals_per_day = args.get("meals_per_day", 5)
+    
+    # Get base nutrition plan
+    base_plan = NUTRITION_PLANS.get(fitness_goal, NUTRITION_PLANS["maintenance"])
+    
+    # Calculate macro targets
+    protein_calories = daily_calories * 0.25
+    carb_calories = daily_calories * 0.50  
+    fat_calories = daily_calories * 0.25
+    
+    if fitness_goal == "muscle_gain":
+        protein_calories = daily_calories * 0.35
+        carb_calories = daily_calories * 0.45
+        fat_calories = daily_calories * 0.20
+    elif fitness_goal == "weight_loss":
+        protein_calories = daily_calories * 0.30
+        carb_calories = daily_calories * 0.40
+        fat_calories = daily_calories * 0.30
+    
+    meal_plan = {
+        "goal": fitness_goal,
+        "daily_calories": daily_calories,
+        "macronutrient_targets": {
+            "protein": f"{int(protein_calories / 4)}g ({int(protein_calories / daily_calories * 100)}%)",
+            "carbohydrates": f"{int(carb_calories / 4)}g ({int(carb_calories / daily_calories * 100)}%)",
+            "fat": f"{int(fat_calories / 9)}g ({int(fat_calories / daily_calories * 100)}%)"
+        },
+        "meals": base_plan["meals"].copy(),
+        "dietary_considerations": dietary_restrictions,
+        "hydration": f"Aim for {int(daily_calories / 100)}+ glasses of water daily",
+        "meal_timing": {
+            "breakfast": "Within 1-2 hours of waking",
+            "lunch": "4-5 hours after breakfast", 
+            "dinner": "3-4 hours before bed",
+            "snacks": "Between main meals as needed"
+        },
+        "notes": f"Customized meal plan for {fitness_goal.replace('_', ' ')} goals with {daily_calories} daily calories"
+    }
+    
+    # Add dietary restriction modifications
+    if dietary_restrictions:
+        meal_plan["modifications"] = f"Plan modified for: {', '.join(dietary_restrictions)}"
+    
+    return [TextContent(
+        type="text",
+        text=json.dumps(meal_plan, indent=2)
     )]
 
 async def main():

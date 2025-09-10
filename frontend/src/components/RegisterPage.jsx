@@ -1,381 +1,424 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-const RegisterPage = ({ onRegister }) => {
+function RegisterPage({ onLogin }) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
     confirmPassword: '',
-    sex: '',
     age: '',
     weight: '',
-    healthConditions: '',
-    fitnessAgent: 'personal_trainer'
+    height: '',
+    gender: 'male',
+    fitnessLevel: 'beginner',
+    agentType: 'personal_trainer',
+    medicalConditions: ''
   });
-  const [isLoading, setIsLoading] = useState(false);
+  
   const [error, setError] = useState('');
-
-  const fitnessAgents = [
-    { value: 'personal_trainer', label: 'Personal Trainer - General fitness guidance' },
-    { value: 'strength_coach', label: 'Strength Coach - Focus on strength training' },
-    { value: 'cardio_specialist', label: 'Cardio Specialist - Endurance and heart health' },
-    { value: 'nutrition_expert', label: 'Nutrition Expert - Diet and meal planning' },
-    { value: 'weight_loss_coach', label: 'Weight Loss Coach - Fat loss strategies' },
-    { value: 'muscle_building_coach', label: 'Muscle Building Coach - Hypertrophy focus' }
-  ];
+  const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-    setError(''); // Clear error when user types
-  };
-
-  const validateForm = () => {
-    // Required fields validation
-    if (!formData.name.trim()) {
-      setError('Name is required');
-      return false;
-    }
-    if (!formData.email.trim()) {
-      setError('Email is required');
-      return false;
-    }
-    if (!formData.password) {
-      setError('Password is required');
-      return false;
-    }
-    if (!formData.sex) {
-      setError('Sex is required');
-      return false;
-    }
-
-    // Email format validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.email)) {
-      setError('Please enter a valid email address');
-      return false;
-    }
-
-    // Password validation
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters long');
-      return false;
-    }
-
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
-      return false;
-    }
-
-    // Optional field validation (if provided)
-    if (formData.age && (isNaN(formData.age) || formData.age < 13 || formData.age > 120)) {
-      setError('Age must be a valid number between 13 and 120');
-      return false;
-    }
-
-    if (formData.weight && (isNaN(formData.weight) || formData.weight < 50 || formData.weight > 1000)) {
-      setError('Weight must be a valid number between 50 and 1000 lbs');
-      return false;
-    }
-
-    return true;
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-
-    setIsLoading(true);
     setError('');
+    setIsLoading(true);
 
     try {
-      // Check if user already exists
-      const existingUsers = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
-      const userExists = existingUsers.find(user => user.email === formData.email);
-      
-      if (userExists) {
-        setError('An account with this email already exists');
-        setIsLoading(false);
-        return;
+      // Validate required fields
+      if (!formData.name || !formData.email || !formData.password) {
+        throw new Error('Please fill in all required fields');
       }
 
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Validate password confirmation
+      if (formData.password !== formData.confirmPassword) {
+        throw new Error('Passwords do not match');
+      }
 
-      // Create user data
-      const userData = {
-        id: Date.now(), // Simple ID generation
-        name: formData.name,
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(formData.email)) {
+        throw new Error('Please enter a valid email address');
+      }
+
+      // Create user profile data following Azure best practices
+      const profileData = {
         email: formData.email,
-        password: formData.password, // In real app, this would be hashed
-        sex: formData.sex,
-        age: formData.age || '',
-        weight: formData.weight || '',
-        fitnessAgent: formData.fitnessAgent,
+        name: formData.name,
+        age: parseInt(formData.age) || null,
+        weight: parseFloat(formData.weight) || null,
+        height: parseFloat(formData.height) || null,
+        gender: formData.gender,
+        sex: formData.gender, // Store both field names for consistency
+        fitnessLevel: formData.fitnessLevel,
+        agentType: formData.agentType,
+        fitnessAgent: formData.agentType, // Store both field names for consistency
+        medicalConditions: formData.medicalConditions.split(',').map(m => m.trim()).filter(m => m),
+        createdAt: new Date().toISOString(),
+        // Azure Search optimized fields
+        isActive: true,
+        lastLoginAt: new Date().toISOString()
+      };
+
+      // Store profile in localStorage for immediate access
+      localStorage.setItem(`userProfile_${formData.email}`, JSON.stringify(profileData));
+      
+      // Also store as general userProfile for immediate use
+      localStorage.setItem('userProfile', JSON.stringify(profileData));
+      console.log('RegisterPage: Profile data stored:', profileData);
+      
+      // Store user credentials for login authentication
+      const registeredUsers = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+      const newUser = {
+        id: Date.now(), // Simple ID generation
+        email: formData.email,
+        password: formData.password, // In production, this should be hashed
+        name: formData.name,
+        age: parseInt(formData.age) || null,
+        weight: parseFloat(formData.weight) || null,
+        height: parseFloat(formData.height) || null,
+        gender: formData.gender,
+        sex: formData.gender, // Store both field names
+        fitnessLevel: formData.fitnessLevel,
+        agentType: formData.agentType,
+        createdAt: new Date().toISOString()
+      };
+      
+      // Check if user already exists
+      const existingUserIndex = registeredUsers.findIndex(u => u.email === formData.email);
+      if (existingUserIndex >= 0) {
+        // Update existing user
+        registeredUsers[existingUserIndex] = newUser;
+      } else {
+        // Add new user
+        registeredUsers.push(newUser);
+      }
+      localStorage.setItem('registeredUsers', JSON.stringify(registeredUsers));
+      
+      // Store in Azure user_data index (following Azure best practices)
+      try {
+        const response = await fetch('http://localhost:5000/api/create-user-profile', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(profileData),
+        });
+
+        if (!response.ok) {
+          console.warn('Azure storage encountered an issue, continuing with local registration');
+        }
+      } catch (azureError) {
+        // Following Azure best practices: graceful degradation
+        console.log('Azure storage temporarily unavailable, profile saved locally');
+      }
+      
+      // Create user session object
+      const user = {
+        email: formData.email,
+        name: formData.name,
+        age: parseInt(formData.age) || null,
+        weight: parseFloat(formData.weight) || null,
+        height: parseFloat(formData.height) || null,
+        gender: formData.gender,
+        fitnessLevel: formData.fitnessLevel,
+        agentType: formData.agentType,
         createdAt: new Date().toISOString()
       };
 
-      // Save to registered users
-      existingUsers.push(userData);
-      localStorage.setItem('registeredUsers', JSON.stringify(existingUsers));
+      // Log the user in and redirect to dashboard
+      onLogin(user);
+      navigate('/');
 
-      // Create user profile
-      const userProfile = {
-        name: userData.name,
-        age: userData.age,
-        sex: userData.sex,
-        weight: userData.weight,
-        fitnessAgent: userData.fitnessAgent
-      };
-      localStorage.setItem('userProfile', JSON.stringify(userProfile));
-
-      // Create login session
-      const sessionData = {
-        id: userData.id,
-        email: userData.email,
-        name: userData.name,
-        isAuthenticated: true
-      };
-      localStorage.setItem('user', JSON.stringify(sessionData));
-
-      // Call onRegister callback
-      onRegister(sessionData);
-
-    } catch (err) {
-      setError('Registration failed. Please try again.');
+    } catch (error) {
+      console.error('Registration error:', error);
+      setError(error.message || 'Registration failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="container mt-4">
+    <div className="container">
       <div className="row justify-content-center">
-        <div className="col-md-8 col-lg-6">
-          <div className="card shadow">
-            <div className="card-header bg-success text-white">
-              <h3 className="mb-0">
+        <div className="col-md-8">
+          <div className="card">
+            <div className="card-header">
+              <h3 className="text-center">
                 <i className="fas fa-user-plus me-2"></i>
-                Create Account
+                Create Your Account
               </h3>
+              <p className="text-center text-muted mb-0">
+                Join your AI Personal Trainer and start your fitness journey
+              </p>
             </div>
-            <div className="card-body p-4">
+            <div className="card-body">
               {error && (
-                <div className="alert alert-danger" role="alert">
+                <div className="alert alert-danger">
+                  <i className="fas fa-exclamation-triangle me-2"></i>
                   {error}
                 </div>
               )}
-
+              
               <form onSubmit={handleSubmit}>
-                {/* Required Fields Section */}
+                {/* Required Information */}
                 <div className="mb-4">
-                  <h5 className="text-primary mb-3">
+                  <h6 className="text-primary">
                     <i className="fas fa-asterisk me-2"></i>
                     Required Information
-                  </h5>
+                  </h6>
                   
-                  <div className="mb-3">
-                    <label htmlFor="name" className="form-label">
-                      Full Name <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      id="name"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleChange}
-                      placeholder="Enter your full name"
-                      required
-                    />
-                  </div>
-
-                  <div className="mb-3">
-                    <label htmlFor="email" className="form-label">
-                      Email <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="email"
-                      className="form-control"
-                      id="email"
-                      name="email"
-                      value={formData.email}
-                      onChange={handleChange}
-                      placeholder="Enter your email address"
-                      required
-                    />
+                  <div className="row">
+                    <div className="col-md-6">
+                      <div className="mb-3">
+                        <label htmlFor="name" className="form-label">Full Name *</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          id="name"
+                          name="name"
+                          value={formData.name}
+                          onChange={handleChange}
+                          required
+                          placeholder="Enter your full name"
+                        />
+                      </div>
+                    </div>
+                    <div className="col-md-6">
+                      <div className="mb-3">
+                        <label htmlFor="email" className="form-label">Email *</label>
+                        <input
+                          type="email"
+                          className="form-control"
+                          id="email"
+                          name="email"
+                          value={formData.email}
+                          onChange={handleChange}
+                          required
+                          placeholder="Enter your email"
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label htmlFor="password" className="form-label">
-                        Password <span className="text-danger">*</span>
-                      </label>
-                      <input
-                        type="password"
-                        className="form-control"
-                        id="password"
-                        name="password"
-                        value={formData.password}
-                        onChange={handleChange}
-                        placeholder="Enter password (min 6 chars)"
-                        required
-                      />
+                    <div className="col-md-6">
+                      <div className="mb-3">
+                        <label htmlFor="password" className="form-label">Password *</label>
+                        <input
+                          type="password"
+                          className="form-control"
+                          id="password"
+                          name="password"
+                          value={formData.password}
+                          onChange={handleChange}
+                          required
+                          placeholder="Create a password"
+                        />
+                      </div>
                     </div>
-                    <div className="col-md-6 mb-3">
-                      <label htmlFor="confirmPassword" className="form-label">
-                        Confirm Password <span className="text-danger">*</span>
-                      </label>
-                      <input
-                        type="password"
-                        className="form-control"
-                        id="confirmPassword"
-                        name="confirmPassword"
-                        value={formData.confirmPassword}
-                        onChange={handleChange}
-                        placeholder="Confirm your password"
-                        required
-                      />
+                    <div className="col-md-6">
+                      <div className="mb-3">
+                        <label htmlFor="confirmPassword" className="form-label">Confirm Password *</label>
+                        <input
+                          type="password"
+                          className="form-control"
+                          id="confirmPassword"
+                          name="confirmPassword"
+                          value={formData.confirmPassword}
+                          onChange={handleChange}
+                          required
+                          placeholder="Confirm your password"
+                        />
+                      </div>
                     </div>
                   </div>
 
                   <div className="mb-3">
-                    <label htmlFor="sex" className="form-label">
-                      Sex <span className="text-danger">*</span>
-                    </label>
+                    <label htmlFor="gender" className="form-label">Gender *</label>
                     <select
                       className="form-select"
-                      id="sex"
-                      name="sex"
-                      value={formData.sex}
+                      id="gender"
+                      name="gender"
+                      value={formData.gender}
                       onChange={handleChange}
                       required
                     >
-                      <option value="">Select sex</option>
                       <option value="male">Male</option>
                       <option value="female">Female</option>
                       <option value="other">Other</option>
+                      <option value="prefer-not-to-say">Prefer not to say</option>
                     </select>
                   </div>
                 </div>
 
-                {/* Optional Fields Section */}
+                {/* Optional Information */}
                 <div className="mb-4">
-                  <h5 className="text-secondary mb-3">
+                  <h6 className="text-info">
                     <i className="fas fa-info-circle me-2"></i>
                     Optional Information (can be added later)
-                  </h5>
+                  </h6>
                   
                   <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label htmlFor="age" className="form-label">Age</label>
-                      <input
-                        type="number"
-                        className="form-control"
-                        id="age"
-                        name="age"
-                        value={formData.age}
-                        onChange={handleChange}
-                        placeholder="Age in years"
-                        min="13"
-                        max="120"
-                      />
+                    <div className="col-md-4">
+                      <div className="mb-3">
+                        <label htmlFor="age" className="form-label">Age</label>
+                        <input
+                          type="number"
+                          className="form-control"
+                          id="age"
+                          name="age"
+                          value={formData.age}
+                          onChange={handleChange}
+                          min="13"
+                          max="120"
+                          placeholder="Your age"
+                        />
+                      </div>
                     </div>
-                    <div className="col-md-6 mb-3">
-                      <label htmlFor="weight" className="form-label">Weight (lbs)</label>
-                      <input
-                        type="number"
-                        className="form-control"
-                        id="weight"
-                        name="weight"
-                        value={formData.weight}
-                        onChange={handleChange}
-                        placeholder="Weight in pounds"
-                        min="50"
-                        max="1000"
-                        step="0.1"
-                      />
+                    <div className="col-md-4">
+                      <div className="mb-3">
+                        <label htmlFor="weight" className="form-label">Weight (lbs)</label>
+                        <input
+                          type="number"
+                          className="form-control"
+                          id="weight"
+                          name="weight"
+                          value={formData.weight}
+                          onChange={handleChange}
+                          min="50"
+                          max="500"
+                          placeholder="Weight in pounds"
+                        />
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="mb-3">
-                    <label htmlFor="fitnessAgent" className="form-label">
-                      Preferred Fitness Coach
-                    </label>
-                    <select
-                      className="form-select"
-                      id="fitnessAgent"
-                      name="fitnessAgent"
-                      value={formData.fitnessAgent}
-                      onChange={handleChange}
-                    >
-                      {fitnessAgents.map(agent => (
-                        <option key={agent.value} value={agent.value}>
-                          {agent.label}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="form-text">
-                      Choose the type of fitness guidance you prefer (can be changed later)
+                    <div className="col-md-4">
+                      <div className="mb-3">
+                        <label htmlFor="height" className="form-label">Height (inches)</label>
+                        <input
+                          type="number"
+                          className="form-control"
+                          id="height"
+                          name="height"
+                          value={formData.height}
+                          onChange={handleChange}
+                          min="36"
+                          max="96"
+                          placeholder="Height in inches"
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  <div className="mb-3">
-                    <label htmlFor="healthConditions" className="form-label">
-                      <i className="fas fa-heart text-danger me-1"></i>
-                      Health Conditions & Exercise Preferences
-                    </label>
-                    <textarea
-                      className="form-control"
-                      id="healthConditions"
-                      name="healthConditions"
-                      value={formData.healthConditions}
-                      onChange={handleChange}
-                      placeholder="e.g., Lower back pain, knee injury, pregnant, beginner to exercise, prefer low-impact workouts, avoid jumping exercises, etc."
-                      rows="3"
-                    />
-                    <div className="form-text">
-                      <i className="fas fa-info-circle me-1"></i>
-                      Share any health conditions, injuries, physical limitations, or exercise preferences to get safer and more personalized recommendations.
+                  <div className="row">
+                    <div className="col-md-6">
+                      <div className="mb-3">
+                        <label htmlFor="fitnessLevel" className="form-label">Fitness Level</label>
+                        <select
+                          className="form-select"
+                          id="fitnessLevel"
+                          name="fitnessLevel"
+                          value={formData.fitnessLevel}
+                          onChange={handleChange}
+                        >
+                          <option value="beginner">Beginner</option>
+                          <option value="intermediate">Intermediate</option>
+                          <option value="advanced">Advanced</option>
+                          <option value="expert">Expert</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="col-md-6">
+                      <div className="mb-3">
+                        <label htmlFor="agentType" className="form-label">Preferred Fitness Coach</label>
+                        <select
+                          className="form-select"
+                          id="agentType"
+                          name="agentType"
+                          value={formData.agentType}
+                          onChange={handleChange}
+                        >
+                          <option value="personal_trainer">Personal Trainer - General fitness</option>
+                          <option value="strength_coach">Strength Coach - Strength training focus</option>
+                          <option value="cardio_specialist">Cardio Specialist - Endurance training</option>
+                          <option value="nutrition_expert">Nutrition Expert - Diet planning</option>
+                          <option value="weight_loss_coach">Weight Loss Coach - Fat loss strategies</option>
+                          <option value="muscle_building_coach">Muscle Building Coach - Hypertrophy focus</option>
+                        </select>
+                        <small className="form-text text-muted">
+                          Choose the type of fitness guidance you prefer (can be changed later)
+                        </small>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  className="btn btn-success w-100"
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <>
-                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                      Creating Account...
-                    </>
-                  ) : (
-                    <>
-                      <i className="fas fa-user-plus me-2"></i>
-                      Create Account
-                    </>
-                  )}
-                </button>
+                {/* Health Conditions */}
+                <div className="mb-4">
+                  <h6 className="text-success">
+                    <i className="fas fa-heart me-2"></i>
+                    Health Conditions & Exercise Preferences
+                  </h6>
+                  
+                  <div className="mb-3">
+                    <label htmlFor="medicalConditions" className="form-label">Health Conditions</label>
+                    <textarea
+                      className="form-control"
+                      id="medicalConditions"
+                      name="medicalConditions"
+                      value={formData.medicalConditions}
+                      onChange={handleChange}
+                      rows="3"
+                      placeholder="Share any health conditions, injuries, physical limitations or exercise preferences to get safer and more personalized recommendations"
+                    />
+                    <small className="form-text text-muted">
+                      Share any health conditions, injuries, physical limitations or exercise preferences to get safer and more personalized recommendations.
+                    </small>
+                  </div>
+                </div>
+                
+                <div className="d-grid">
+                  <button 
+                    type="submit" 
+                    className="btn btn-primary btn-lg"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm me-2"></span>
+                        Creating Account...
+                      </>
+                    ) : (
+                      <>
+                        <i className="fas fa-user-plus me-2"></i>
+                        Create Account
+                      </>
+                    )}
+                  </button>
+                </div>
+                
+                <div className="mt-3 text-center">
+                  <small className="text-muted">
+                    Already have an account? <a href="/login" className="text-decoration-none">Login here</a>
+                  </small>
+                </div>
               </form>
-
-              <div className="text-center mt-3">
-                <small className="text-muted">
-                  Already have an account? <a href="/login" className="text-decoration-none">Login here</a>
-                </small>
-              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
   );
-};
+}
 
 export default RegisterPage;

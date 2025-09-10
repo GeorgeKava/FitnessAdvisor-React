@@ -1454,7 +1454,7 @@ const DashboardPage = ({ user }) => {
             <div className="card-body">
               <h5 className="card-title">Quick Actions</h5>
               <div className="row">
-                <div className="col-md-4">
+                <div className="col-md-3">
                   <button 
                     className="btn btn-outline-primary w-100 mb-2"
                     onClick={() => navigate('/fitness-advisor')}
@@ -1463,9 +1463,38 @@ const DashboardPage = ({ user }) => {
                     New Analysis
                   </button>
                 </div>
-                <div className="col-md-4">
+                <div className="col-md-3">
                   <button 
                     className="btn btn-outline-success w-100 mb-2"
+                    onClick={() => navigate('/food-recommendations')}
+                  >
+                    <i className="fas fa-utensils me-2"></i>
+                    Food Recommendations
+                  </button>
+                </div>
+                <div className="col-md-3">
+                  <button 
+                    className="btn btn-outline-info w-100 mb-2"
+                    onClick={() => navigate('/identify-food')}
+                  >
+                    <i className="fas fa-search me-2"></i>
+                    Identify Food
+                  </button>
+                </div>
+                <div className="col-md-3">
+                  <button 
+                    className="btn btn-outline-warning w-100 mb-2"
+                    onClick={() => navigate('/weekly-plan')}
+                  >
+                    <i className="fas fa-calendar me-2"></i>
+                    Weekly Plan
+                  </button>
+                </div>
+              </div>
+              <div className="row mt-2">
+                <div className="col-md-4">
+                  <button 
+                    className="btn btn-outline-secondary w-100 mb-2"
                     onClick={() => navigate('/profile')}
                   >
                     <i className="fas fa-user me-2"></i>
@@ -1474,11 +1503,20 @@ const DashboardPage = ({ user }) => {
                 </div>
                 <div className="col-md-4">
                   <button 
-                    className="btn btn-outline-warning w-100 mb-2"
-                    onClick={() => navigate('/weekly-plan')}
+                    className="btn btn-outline-dark w-100 mb-2"
+                    onClick={() => navigate('/voice-chat')}
                   >
-                    <i className="fas fa-calendar me-2"></i>
-                    Weekly Plan
+                    <i className="fas fa-microphone me-2"></i>
+                    Voice Chat
+                  </button>
+                </div>
+                <div className="col-md-4">
+                  <button 
+                    className="btn btn-outline-primary w-100 mb-2"
+                    onClick={() => navigate('/progress')}
+                  >
+                    <i className="fas fa-chart-line me-2"></i>
+                    Progress
                   </button>
                 </div>
               </div>

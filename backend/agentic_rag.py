@@ -222,8 +222,8 @@ Provide a comprehensive analysis that will be used to create a personalized fitn
                         ]
                     }
                 ],
-                max_tokens=800,
-                temperature=0.7
+                max_tokens=int(os.getenv("AGENTIC_RAG_MAX_TOKENS", "800")),
+                temperature=float(os.getenv("AI_TEMPERATURE", "0.7"))
             )
             
             image_analysis = response.choices[0].message.content
@@ -243,12 +243,22 @@ Provide a comprehensive analysis that will be used to create a personalized fitn
         age = int(user_data.get('age', 30))
         gender = user_data.get('gender', 'male')
         weight = float(user_data.get('weight', 150))
+        height = user_data.get('height', None)
         goal = user_data.get('agent_type', 'general')
         health_conditions = user_data.get('health_conditions', '').lower()
         
         # Intelligent profile analysis
+        demographics = {"age": age, "gender": gender, "weight": weight}
+        
+        # Add height to demographics if provided and not empty
+        if height and str(height).strip():
+            try:
+                demographics["height"] = float(height)
+            except (ValueError, TypeError):
+                pass  # Skip if height conversion fails
+            
         profile = {
-            "demographics": {"age": age, "gender": gender, "weight": weight},
+            "demographics": demographics,
             "primary_goal": goal,
             "health_constraints": self._parse_health_constraints(health_conditions),
             "fitness_level": self._infer_fitness_level(user_data, image_analysis),
@@ -567,13 +577,23 @@ Provide a comprehensive analysis that will be used to create a personalized fitn
                 exercise_categories[category] = []
             exercise_categories[category].append(result)
         
-        # Build comprehensive recommendation using fallback with ORIGINAL user_data
+        # Build comprehensive recommendation using fallback with CONVERTED user_data
         from mcp_client import get_azure_search_enhanced_fallback_sync, FitnessMCPClient
         
-        # Use the enhanced fallback directly with original user_data format
+        # Ensure user_data has properly converted types for mathematical operations
+        converted_user_data = user_data.copy()
+        converted_user_data['age'] = int(user_data.get('age', 30))
+        converted_user_data['weight'] = float(user_data.get('weight', 150))
+        # Keep height as string for inch display but ensure it's not None
+        if user_data.get('height') is None or str(user_data.get('height', '')).strip() == '':
+            converted_user_data['height'] = None
+        else:
+            converted_user_data['height'] = str(user_data.get('height'))
+        
+        # Use the enhanced fallback with properly typed user_data
         client = FitnessMCPClient()
         base_recommendation = get_azure_search_enhanced_fallback_sync(
-            user_data, images, client
+            converted_user_data, images, client
         )
         
         # Enhance with agentic insights including visual assessment

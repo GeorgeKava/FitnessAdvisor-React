@@ -27,7 +27,7 @@ import base64
 import json
 from mimetypes import guess_type
 import uuid
-from mcp_client import get_enhanced_fitness_recommendation_sync
+from mcp_client import get_fitness_recommendation_sync
 
 load_dotenv()
 
@@ -131,7 +131,7 @@ def create_index():
     except Exception as e:
         logging.error(f"Failed to create index: {e}")
 
-def get_fitness_recommendation(image_paths, gender, age, weight, agent_type="general", health_conditions=""):
+def get_fitness_recommendation(image_paths, gender, age, weight, height=None, agent_type="general", health_conditions=""):
     """
     Enhanced fitness recommendation using both GPT-4o vision and MCP tools.
     """
@@ -151,7 +151,10 @@ def get_fitness_recommendation(image_paths, gender, age, weight, agent_type="gen
             })
 
     # Enhanced prompt for comprehensive fitness analysis
-    user_info = f"User: {gender}, {age} years old, {weight} lbs, Goal: {agent_type}"
+    user_info = f"User: {gender}, {age} years old, {weight} lbs"
+    if height:
+        user_info += f", {height} inches tall"
+    user_info += f", Goal: {agent_type}"
     if health_conditions.strip():
         user_info += f"\nHealth/Exercise Notes: {health_conditions}"
     
@@ -222,8 +225,8 @@ COMPREHENSIVE ANALYSIS REQUIRED:
                     for img in encoded_images
                 ]
             ],
-            max_tokens=2500,  # Increased for comprehensive weekly response
-            temperature=0.7,  # Slightly more focused
+            max_tokens=int(os.getenv("AI_MAX_TOKENS", "2500")),
+            temperature=float(os.getenv("AI_TEMPERATURE", "0.7")),
         )
         
         vision_analysis = response.choices[0].message.content
@@ -234,11 +237,12 @@ COMPREHENSIVE ANALYSIS REQUIRED:
             import time
             
             def get_mcp_data():
-                return get_enhanced_fitness_recommendation_sync(
-                    age=int(age),
+                return get_fitness_recommendation_sync(
+                    images=encoded_images,
                     gender=gender,
+                    age=int(age),
                     weight=float(weight),
-                    goal=agent_type
+                    agent_type=agent_type
                 )
             
             # Try MCP with 5 second timeout
@@ -434,8 +438,8 @@ Follow this structure EXACTLY with proper EXERCISES/ACTIVITIES sections."""
             messages=[
                 {"role": "system", "content": prompt}
             ],
-            max_tokens=3000,
-            temperature=0.3  # Lower temperature for more consistent formatting
+            max_tokens=int(os.getenv("AI_FORMATTING_MAX_TOKENS", "3000")),
+            temperature=float(os.getenv("AI_FORMATTING_TEMPERATURE", "0.3"))
         )
         
         weekly_plan_text = response.choices[0].message.content
@@ -1469,3 +1473,348 @@ def get_fallback_weekly_plan(agent_type):
         'weeklyGoals': get_weekly_goals_for_agent(agent_type),
         'dailyPlans': get_fallback_daily_plans(agent_type)
     }
+
+def get_food_recommendations(gender, age, weight, height, fitness_goal, dietary_restrictions='', meal_preferences='', user_email=''):
+    """Generate personalized food recommendations based on user profile and fitness goals"""
+    try:
+        # Calculate BMR and TDEE for caloric needs
+        if gender.lower() == 'male':
+            bmr = 88.362 + (13.397 * weight) + (4.799 * height) - (5.677 * age)
+        else:
+            bmr = 447.593 + (9.247 * weight) + (3.098 * height) - (4.330 * age)
+        
+        # Assume moderate activity level (can be adjusted based on user's fitness level)
+        tdee = bmr * 1.55
+        
+        # Adjust calories based on fitness goal
+        if fitness_goal == 'weight_loss':
+            target_calories = tdee - 500
+            goal_description = "weight loss"
+        elif fitness_goal == 'muscle_gain':
+            target_calories = tdee + 300
+            goal_description = "muscle building"
+        else:
+            target_calories = tdee
+            goal_description = "maintenance"
+        
+        # Create the prompt for AI food recommendations
+        prompt = f"""
+        Create personalized food recommendations for a {age}-year-old {gender} who weighs {weight}kg and is {height}cm tall.
+        
+        Goals: {goal_description}
+        Target daily calories: {int(target_calories)}
+        Dietary restrictions: {dietary_restrictions if dietary_restrictions else 'None'}
+        Meal preferences: {meal_preferences if meal_preferences else 'No specific preferences'}
+        
+        Please provide:
+        1. Daily meal plan with breakfast, lunch, dinner, and 2 snacks
+        2. Macronutrient breakdown (protein, carbs, fats)
+        3. Portion sizes and calorie estimates for each meal
+        4. Food substitutions for variety
+        5. Meal prep tips
+        6. Hydration recommendations
+        
+        Format the response as a structured JSON with the following structure:
+        {{
+            "daily_calories": target_calories,
+            "macronutrient_targets": {{
+                "protein": "protein_grams",
+                "carbohydrates": "carb_grams", 
+                "fat": "fat_grams"
+            }},
+            "meal_plan": {{
+                "breakfast": {{
+                    "meal": "meal_description",
+                    "calories": estimated_calories,
+                    "protein": protein_grams,
+                    "carbs": carb_grams,
+                    "fat": fat_grams,
+                    "ingredients": ["ingredient1", "ingredient2"],
+                    "preparation": "preparation_instructions"
+                }},
+                "lunch": {{ ... }},
+                "dinner": {{ ... }},
+                "snack1": {{ ... }},
+                "snack2": {{ ... }}
+            }},
+            "food_substitutions": {{
+                "protein_sources": ["option1", "option2"],
+                "carb_sources": ["option1", "option2"],
+                "healthy_fats": ["option1", "option2"]
+            }},
+            "meal_prep_tips": ["tip1", "tip2", "tip3"],
+            "hydration": "daily_water_intake_recommendation",
+            "notes": "additional_nutritional_advice"
+        }}
+        
+        Make sure all recommendations align with the {goal_description} goal and respect the dietary restrictions.
+        """
+        
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are an expert nutritionist and dietitian specializing in sports nutrition and meal planning. Provide accurate, science-based nutritional advice."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=2000,
+            temperature=0.7
+        )
+        
+        # Extract and parse the JSON response
+        response_text = response.choices[0].message.content
+        
+        # Try to extract JSON from the response
+        import re
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if json_match:
+            try:
+                food_recommendations = json.loads(json_match.group())
+                return food_recommendations
+            except json.JSONDecodeError:
+                pass
+        
+        # Fallback if JSON parsing fails
+        return {
+            "daily_calories": int(target_calories),
+            "response": response_text,
+            "goal": goal_description,
+            "user_profile": {
+                "gender": gender,
+                "age": age,
+                "weight": weight,
+                "height": height
+            }
+        }
+        
+    except Exception as e:
+        logging.error(f"Error generating food recommendations: {e}")
+        return get_fallback_food_recommendations(fitness_goal, target_calories)
+
+def identify_food_from_image(image_path, analysis_type='food', fitness_goal='general', dietary_restrictions='', user_email=''):
+    """Identify food/ingredient from an image and provide analysis or recipe suggestions"""
+    try:
+        # Get user's food recommendations for context
+        user_food_recommendations = None
+        if user_email:
+            try:
+                from voice_chat import get_user_food_recommendations_for_context
+                user_food_recommendations = get_user_food_recommendations_for_context(user_email)
+            except Exception as e:
+                logging.warning(f"Could not get user food recommendations: {e}")
+        
+        # Encode image to base64
+        with open(image_path, "rb") as image_file:
+            image_data = base64.b64encode(image_file.read()).decode('utf-8')
+        
+        # Determine the MIME type
+        mime_type, _ = guess_type(image_path)
+        if mime_type is None:
+            mime_type = 'image/jpeg'  # Default fallback
+        
+        if analysis_type == 'food':
+            prompt = f"""
+            Analyze the prepared food/meal in this image and provide a comprehensive nutritional assessment.
+            
+            User context:
+            - Fitness goal: {fitness_goal}
+            - Dietary restrictions: {dietary_restrictions if dietary_restrictions else 'None specified'}
+            {f"- User's current food recommendations: {user_food_recommendations}" if user_food_recommendations else ""}
+            
+            Please provide:
+            1. Food identification (what foods/dishes you can see)
+            2. Estimated portion sizes
+            3. Nutritional breakdown (calories, macronutrients, vitamins, minerals)
+            4. Health assessment for the user's fitness goal
+            5. Recommendations based on their food plan (should they eat it, portion adjustments, alternatives)
+            6. Timing suggestions (best time to eat this food)
+            
+            Format as JSON:
+            {{
+                "identified_foods": ["food1", "food2"],
+                "portion_estimate": "estimated portion description",
+                "nutrition": {{
+                    "calories": estimated_calories,
+                    "protein": protein_grams,
+                    "carbohydrates": carb_grams,
+                    "fat": fat_grams,
+                    "fiber": fiber_grams,
+                    "sugar": sugar_grams,
+                    "sodium": sodium_mg
+                }},
+                "health_assessment": {{
+                    "overall_rating": "excellent/good/moderate/poor",
+                    "fitness_goal_alignment": "how_well_it_aligns_with_goal",
+                    "nutritional_quality": "assessment_of_nutritional_value",
+                    "food_plan_compatibility": "how_well_it_fits_users_food_recommendations"
+                }},
+                "recommendations": {{
+                    "should_eat": true_or_false,
+                    "portion_advice": "portion_recommendation",
+                    "alternatives": ["healthier_alternative1", "healthier_alternative2"],
+                    "timing": "best_time_to_consume",
+                    "modifications": "suggested_modifications"
+                }},
+                "detailed_analysis": "comprehensive_explanation",
+                "confidence": "confidence_level_in_identification"
+            }}
+            
+            Be specific about the foods you can identify and honest about uncertainty.
+            """
+        
+        else:  # analysis_type == 'ingredient'
+            prompt = f"""
+            Analyze the ingredient(s) in this image and suggest healthy recipes that can be made using them.
+            
+            User context:
+            - Fitness goal: {fitness_goal}
+            - Dietary restrictions: {dietary_restrictions if dietary_restrictions else 'None specified'}
+            {f"- User's current food recommendations: {user_food_recommendations}" if user_food_recommendations else ""}
+            
+            Please provide:
+            1. Ingredient identification
+            2. At least 3 healthy recipe suggestions using these ingredients
+            3. Nutritional benefits of the ingredient
+            4. How recipes align with user's fitness goals and food plan
+            
+            Format as JSON:
+            {{
+                "identified_ingredients": ["ingredient1", "ingredient2"],
+                "ingredient_benefits": {{
+                    "nutritional_value": "key_nutritional_benefits",
+                    "health_properties": "health_benefits",
+                    "fitness_relevance": "how_it_supports_fitness_goals"
+                }},
+                "recipes": [
+                    {{
+                        "name": "recipe_name",
+                        "description": "brief_description",
+                        "ingredients": ["ingredient1", "additional_ingredient2"],
+                        "instructions": "step_by_step_cooking_instructions",
+                        "nutrition_per_serving": {{
+                            "calories": estimated_calories,
+                            "protein": protein_grams,
+                            "carbohydrates": carb_grams,
+                            "fat": fat_grams
+                        }},
+                        "prep_time": "preparation_time",
+                        "difficulty": "easy/medium/hard",
+                        "fitness_benefits": "why_good_for_fitness_goal"
+                    }}
+                ],
+                "usage_tips": "tips_for_using_ingredient",
+                "storage_advice": "how_to_store_ingredient",
+                "confidence": "confidence_level_in_identification"
+            }}
+            
+            Provide at least 3 recipe suggestions that align with the user's fitness goals.
+            """
+        
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system", 
+                    "content": "You are an expert nutritionist and food scientist with extensive knowledge of food identification, nutritional analysis, and dietary recommendations."
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime_type};base64,{image_data}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=1500,
+            temperature=0.3
+        )
+        
+        response_text = response.choices[0].message.content
+        
+        # Try to extract JSON from the response
+        import re
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if json_match:
+            try:
+                food_analysis = json.loads(json_match.group())
+                return food_analysis
+            except json.JSONDecodeError:
+                pass
+        
+        # Fallback if JSON parsing fails
+        return {
+            "identified_foods": ["Unable to identify specific foods"],
+            "nutrition": {"calories": "Unknown", "note": "Could not analyze nutrition"},
+            "analysis": response_text,
+            "confidence": "Low - JSON parsing failed"
+        }
+        
+    except Exception as e:
+        logging.error(f"Error identifying food from image: {e}")
+        return {
+            "error": str(e),
+            "identified_foods": ["Error in food identification"],
+            "recommendations": {
+                "should_eat": None,
+                "message": "Unable to analyze food due to technical error"
+            }
+        }
+
+def get_fallback_food_recommendations(fitness_goal, target_calories):
+    """Provide fallback food recommendations when AI generation fails"""
+    
+    base_recommendations = {
+        "daily_calories": int(target_calories),
+        "goal": fitness_goal,
+        "meal_plan": {
+            "breakfast": {
+                "meal": "Greek yogurt with berries and granola",
+                "calories": 350,
+                "protein": 20,
+                "carbs": 45,
+                "fat": 8
+            },
+            "lunch": {
+                "meal": "Grilled chicken salad with mixed vegetables",
+                "calories": 450,
+                "protein": 35,
+                "carbs": 25,
+                "fat": 18
+            },
+            "dinner": {
+                "meal": "Baked salmon with quinoa and steamed broccoli",
+                "calories": 500,
+                "protein": 40,
+                "carbs": 35,
+                "fat": 20
+            },
+            "snack1": {
+                "meal": "Apple with almond butter",
+                "calories": 200,
+                "protein": 6,
+                "carbs": 25,
+                "fat": 12
+            },
+            "snack2": {
+                "meal": "Protein smoothie",
+                "calories": 250,
+                "protein": 25,
+                "carbs": 20,
+                "fat": 8
+            }
+        },
+        "hydration": "Aim for 8-10 glasses of water daily",
+        "notes": "Fallback meal plan - consult with a nutritionist for personalized advice"
+    }
+    
+    # Adjust for specific goals
+    if fitness_goal == 'weight_loss':
+        base_recommendations["notes"] += ". Focus on portion control and high-fiber foods."
+    elif fitness_goal == 'muscle_gain':
+        base_recommendations["notes"] += ". Increase protein intake and post-workout nutrition."
+    
+    return base_recommendations

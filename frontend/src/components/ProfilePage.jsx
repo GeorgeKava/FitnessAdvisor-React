@@ -1,17 +1,20 @@
 import React, { useState, useEffect } from 'react';
 
-const ProfilePage = ({ user }) => {
-  const [profileData, setProfileData] = useState({
+function ProfilePage({ user, onUpdateUser }) {
+  const [formData, setFormData] = useState({
     name: '',
     age: '',
     sex: '',
     weight: '',
+    height: '',
     healthConditions: '',
     fitnessAgent: 'personal_trainer'
   });
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [isSyncingToAzure, setIsSyncingToAzure] = useState(false);
+  const [azureStatus, setAzureStatus] = useState(null);
 
   const fitnessAgents = [
     { value: 'personal_trainer', label: 'Personal Trainer - General fitness guidance' },
@@ -23,16 +26,71 @@ const ProfilePage = ({ user }) => {
   ];
 
   useEffect(() => {
-    // Load profile data from localStorage
-    const savedProfile = localStorage.getItem('userProfile');
-    if (savedProfile) {
-      setProfileData(JSON.parse(savedProfile));
-    }
-  }, []);
+    // Load profile data from localStorage and map fields properly
+    const loadProfileData = () => {
+      const savedProfile = localStorage.getItem('userProfile');
+      console.log('ProfilePage: Loading profile data...');
+      console.log('ProfilePage: savedProfile exists:', !!savedProfile);
+      
+      if (savedProfile) {
+        try {
+          const profile = JSON.parse(savedProfile);
+          console.log('ProfilePage: Profile data loaded:', profile);
+          
+          // Map profile data to form fields with proper field name mapping
+          const mappedData = {
+            name: profile.name || '',
+            age: profile.age || '',
+            sex: profile.sex || profile.gender || '', // Map both sex and gender fields
+            weight: profile.weight || '',
+            height: profile.height || '',
+            healthConditions: Array.isArray(profile.healthConditions) 
+              ? profile.healthConditions.join(', ') 
+              : (profile.healthConditions || profile.medicalConditions || ''),
+            fitnessAgent: profile.fitnessAgent || profile.agentType || 'personal_trainer'
+          };
+          
+          console.log('ProfilePage: Mapped data:', mappedData);
+          setFormData(mappedData);
+        } catch (error) {
+          console.error('ProfilePage: Error loading profile data:', error);
+        }
+      }
+      
+      // Also check for user-specific profile data
+      if (user?.email) {
+        const userSpecificProfile = localStorage.getItem(`userProfile_${user.email}`);
+        if (userSpecificProfile) {
+          try {
+            const profile = JSON.parse(userSpecificProfile);
+            console.log('ProfilePage: User-specific profile loaded:', profile);
+            
+            const mappedData = {
+              name: profile.name || '',
+              age: profile.age || '',
+              sex: profile.sex || profile.gender || '',
+              weight: profile.weight || '',
+              height: profile.height || '',
+              healthConditions: Array.isArray(profile.healthConditions) 
+                ? profile.healthConditions.join(', ') 
+                : (profile.healthConditions || profile.medicalConditions || ''),
+              fitnessAgent: profile.fitnessAgent || profile.agentType || 'personal_trainer'
+            };
+            
+            setFormData(mappedData);
+          } catch (error) {
+            console.error('ProfilePage: Error loading user-specific profile:', error);
+          }
+        }
+      }
+    };
+    
+    loadProfileData();
+  }, [user]);
 
   const handleChange = (e) => {
-    setProfileData({
-      ...profileData,
+    setFormData({
+      ...formData,
       [e.target.name]: e.target.value
     });
     setMessage(''); // Clear message when user types
@@ -44,15 +102,15 @@ const ProfilePage = ({ user }) => {
 
     try {
       // Validate required fields
-      if (!profileData.name || !profileData.age || !profileData.sex || !profileData.weight) {
+      if (!formData.name || !formData.age || !formData.sex || !formData.weight) {
         setMessage('Please fill in all required fields');
         setIsSaving(false);
         return;
       }
 
-      // Validate age and weight are numbers
-      if (isNaN(profileData.age) || isNaN(profileData.weight)) {
-        setMessage('Age and weight must be valid numbers');
+      // Validate age, weight, and height are numbers (height is optional)
+      if (isNaN(formData.age) || isNaN(formData.weight) || (formData.height && isNaN(formData.height))) {
+        setMessage('Age, weight, and height must be valid numbers');
         setIsSaving(false);
         return;
       }
@@ -61,7 +119,14 @@ const ProfilePage = ({ user }) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Save to localStorage (in a real app, this would be an API call)
-      localStorage.setItem('userProfile', JSON.stringify(profileData));
+      const profileDataToSave = {
+        ...formData,
+        gender: formData.sex, // Ensure both sex and gender fields are stored
+        sex: formData.sex
+      };
+      
+      localStorage.setItem('userProfile', JSON.stringify(profileDataToSave));
+      console.log('ProfilePage: Profile saved:', profileDataToSave);
       
       // Update registered user data if user is registered
       const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
@@ -71,14 +136,20 @@ const ProfilePage = ({ user }) => {
         if (userIndex !== -1) {
           registeredUsers[userIndex] = {
             ...registeredUsers[userIndex],
-            name: profileData.name,
-            age: profileData.age,
-            sex: profileData.sex,
-            weight: profileData.weight,
-            fitnessAgent: profileData.fitnessAgent
+            name: formData.name,
+            age: formData.age,
+            sex: formData.sex,
+            gender: formData.sex, // Store both for consistency
+            weight: formData.weight,
+            fitnessAgent: formData.fitnessAgent
           };
           localStorage.setItem('registeredUsers', JSON.stringify(registeredUsers));
         }
+      }
+      
+      // Also store user-specific profile if user email is available
+      if (user?.email) {
+        localStorage.setItem(`userProfile_${user.email}`, JSON.stringify(profileDataToSave));
       }
       
       setMessage('Profile saved successfully!');
@@ -99,14 +170,92 @@ const ProfilePage = ({ user }) => {
     // Reload from localStorage
     const savedProfile = localStorage.getItem('userProfile');
     if (savedProfile) {
-      setProfileData(JSON.parse(savedProfile));
+      setFormData(JSON.parse(savedProfile));
     }
     setIsEditing(false);
     setMessage('');
   };
 
+  // Function to sync profile to the user_data index
+  const syncProfileToAzure = async () => {
+    if (!user?.email) return;
+
+    setIsSyncingToAzure(true);
+    
+    try {
+      const profileData = {
+        email: user.email,
+        name: formData.name,
+        age: parseInt(formData.age) || null,
+        weight: parseFloat(formData.weight) || null,
+        height: parseFloat(formData.height) || null,
+        gender: formData.gender,
+        fitnessLevel: formData.fitnessLevel,
+        agentType: formData.agentType,
+        goals: formData.goals.split(',').map(g => g.trim()).filter(g => g),
+        medicalConditions: formData.medicalConditions.split(',').map(m => m.trim()).filter(m => m),
+        preferredWorkoutTime: formData.preferredWorkoutTime,
+        equipmentAccess: formData.equipmentAccess.split(',').map(e => e.trim()).filter(e => e)
+      };
+
+      const response = await fetch(`http://localhost:5000/api/update-user-profile/${user.email}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(profileData),
+      });
+
+      if (response.ok) {
+        setAzureStatus({ type: 'success', message: 'Profile synced to user_data index successfully!' });
+      } else {
+        const errorData = await response.json();
+        setAzureStatus({ type: 'error', message: errorData.error || 'Failed to sync to user_data index' });
+      }
+    } catch (error) {
+      setAzureStatus({ type: 'error', message: 'Network error syncing to user_data index' });
+    } finally {
+      setIsSyncingToAzure(false);
+      // Clear status after 3 seconds
+      setTimeout(() => setAzureStatus(null), 3000);
+    }
+  };
+
+  // Load profile from user_data index on component mount
+  useEffect(() => {
+    const loadProfileFromAzure = async () => {
+      if (user?.email) {
+        try {
+          const response = await fetch(`http://localhost:5000/api/get-user-profile/${user.email}`);
+          if (response.ok) {
+            const azureProfile = await response.json();
+            // Update formData with Azure profile data if available
+            setFormData(prevData => ({
+              ...prevData,
+              ...azureProfile
+            }));
+            setAzureStatus({ type: 'success', message: 'Profile loaded from user_data index' });
+            setTimeout(() => setAzureStatus(null), 2000);
+          }
+        } catch (error) {
+          console.log('Could not load profile from Azure, using localStorage');
+        }
+      }
+    };
+
+    loadProfileFromAzure();
+  }, [user]);
+
   return (
     <div className="container mt-4">
+      {/* Azure Sync Status */}
+      {azureStatus && (
+        <div className={`alert alert-${azureStatus.type === 'success' ? 'success' : 'danger'} alert-dismissible fade show`}>
+          <i className={`fas fa-${azureStatus.type === 'success' ? 'check-circle' : 'exclamation-triangle'} me-2`}></i>
+          {azureStatus.message}
+        </div>
+      )}
+
       <div className="row justify-content-center">
         <div className="col-md-8 col-lg-6">
           <div className="card shadow">
@@ -133,7 +282,7 @@ const ProfilePage = ({ user }) => {
                     className="form-control"
                     id="name"
                     name="name"
-                    value={profileData.name}
+                    value={formData.name}
                     onChange={handleChange}
                     disabled={!isEditing}
                     placeholder="Enter your full name"
@@ -151,7 +300,7 @@ const ProfilePage = ({ user }) => {
                       className="form-control"
                       id="age"
                       name="age"
-                      value={profileData.age}
+                      value={formData.age}
                       onChange={handleChange}
                       disabled={!isEditing}
                       placeholder="Age in years"
@@ -169,7 +318,7 @@ const ProfilePage = ({ user }) => {
                       className="form-select"
                       id="sex"
                       name="sex"
-                      value={profileData.sex}
+                      value={formData.sex}
                       onChange={handleChange}
                       disabled={!isEditing}
                       required
@@ -191,7 +340,7 @@ const ProfilePage = ({ user }) => {
                     className="form-control"
                     id="weight"
                     name="weight"
-                    value={profileData.weight}
+                    value={formData.weight}
                     onChange={handleChange}
                     disabled={!isEditing}
                     placeholder="Weight in pounds"
@@ -203,6 +352,29 @@ const ProfilePage = ({ user }) => {
                 </div>
 
                 <div className="mb-3">
+                  <label htmlFor="height" className="form-label">
+                    <i className="fas fa-ruler-vertical text-primary me-1"></i>
+                    Height (inches)
+                  </label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    id="height"
+                    name="height"
+                    value={formData.height}
+                    onChange={handleChange}
+                    disabled={!isEditing}
+                    placeholder="Height in inches (e.g., 70)"
+                    min="36"
+                    max="96"
+                    step="0.5"
+                  />
+                  <div className="form-text">
+                    Optional - helps provide more accurate recommendations
+                  </div>
+                </div>
+
+                <div className="mb-3">
                   <label htmlFor="healthConditions" className="form-label">
                     <i className="fas fa-heart text-danger me-1"></i>
                     Health Conditions & Exercise Preferences
@@ -211,7 +383,7 @@ const ProfilePage = ({ user }) => {
                     className="form-control"
                     id="healthConditions"
                     name="healthConditions"
-                    value={profileData.healthConditions}
+                    value={formData.healthConditions}
                     onChange={handleChange}
                     disabled={!isEditing}
                     placeholder="e.g., Lower back pain, knee injury, pregnant, beginner to exercise, prefer low-impact workouts, avoid jumping exercises, etc."
@@ -231,7 +403,7 @@ const ProfilePage = ({ user }) => {
                     className="form-select"
                     id="fitnessAgent"
                     name="fitnessAgent"
-                    value={profileData.fitnessAgent}
+                    value={formData.fitnessAgent}
                     onChange={handleChange}
                     disabled={!isEditing}
                     required
@@ -290,22 +462,65 @@ const ProfilePage = ({ user }) => {
                 </div>
               </form>
 
-              {profileData.name && !isEditing && (
+              {formData.name && !isEditing && (
                 <div className="mt-4 p-3 bg-light rounded">
                   <h5>Profile Summary</h5>
-                  <p className="mb-1"><strong>Name:</strong> {profileData.name}</p>
-                  <p className="mb-1"><strong>Age:</strong> {profileData.age} years</p>
-                  <p className="mb-1"><strong>Sex:</strong> {profileData.sex}</p>
-                  <p className="mb-1"><strong>Weight:</strong> {profileData.weight} lbs</p>
-                  <p className="mb-0"><strong>Fitness Agent:</strong> {fitnessAgents.find(agent => agent.value === profileData.fitnessAgent)?.label}</p>
+                  <p className="mb-1"><strong>Name:</strong> {formData.name}</p>
+                  <p className="mb-1"><strong>Age:</strong> {formData.age} years</p>
+                  <p className="mb-1"><strong>Sex:</strong> {formData.sex}</p>
+                  <p className="mb-1"><strong>Weight:</strong> {formData.weight} lbs</p>
+                  {formData.height && <p className="mb-1"><strong>Height:</strong> {formData.height} inches</p>}
+                  <p className="mb-0"><strong>Fitness Agent:</strong> {fitnessAgents.find(agent => agent.value === formData.fitnessAgent)?.label}</p>
                 </div>
               )}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Azure Sync Section */}
+      <div className="card mt-4">
+        <div className="card-header">
+          <h5>
+            <i className="fab fa-microsoft me-2"></i>
+            Azure Integration - user_data index
+          </h5>
+        </div>
+        <div className="card-body">
+          <p className="text-muted">
+            Your profile is stored in the Azure AI Search user_data index, enabling enhanced AI recommendations and voice chat functionality.
+          </p>
+          <div className="d-flex gap-2">
+            <button 
+              className="btn btn-outline-primary"
+              onClick={syncProfileToAzure}
+              disabled={isSyncingToAzure}
+            >
+              {isSyncingToAzure ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2"></span>
+                  Syncing to user_data index...
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-sync-alt me-2"></i>
+                  Sync to user_data index
+                </>
+              )}
+            </button>
+            
+            <button 
+              className="btn btn-outline-info"
+              onClick={() => window.open('https://portal.azure.com', '_blank')}
+            >
+              <i className="fas fa-external-link-alt me-2"></i>
+              View in Azure Portal
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
-};
+}
 
 export default ProfilePage;
