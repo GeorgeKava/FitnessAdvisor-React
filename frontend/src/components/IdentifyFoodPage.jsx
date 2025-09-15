@@ -1,6 +1,36 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 
+// Error Boundary Component to catch rendering errors
+class RecipeErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Recipe rendering error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="alert alert-warning">
+          <i className="fas fa-exclamation-triangle me-2"></i>
+          <strong>Recipe Display Error:</strong> Unable to display recipes due to data formatting issues. 
+          Please try analyzing the image again.
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 function IdentifyFoodPage({ user }) {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -191,9 +221,39 @@ function IdentifyFoodPage({ user }) {
       });
 
       if (response.data.success) {
-        setAnalysisResult(response.data.food_analysis);
+        // Validate and sanitize the analysis result
+        const analysis = response.data.food_analysis;
+        
+        // Ensure recipes array is properly formatted
+        if (analysis && analysis.recipes) {
+          if (!Array.isArray(analysis.recipes)) {
+            console.warn('Recipes data is not an array, attempting to fix...');
+            analysis.recipes = [];
+          } else {
+            // Filter out invalid recipe objects
+            analysis.recipes = analysis.recipes.filter(recipe => 
+              recipe && typeof recipe === 'object'
+            );
+          }
+        }
+
+        // Ensure identified_ingredients is an array for ingredient analysis
+        if (analysis && analysisType === 'ingredient' && analysis.identified_ingredients) {
+          if (!Array.isArray(analysis.identified_ingredients)) {
+            analysis.identified_ingredients = [analysis.identified_ingredients];
+          }
+        }
+
+        // Ensure identified_foods is an array for food analysis
+        if (analysis && analysisType === 'food' && analysis.identified_foods) {
+          if (!Array.isArray(analysis.identified_foods)) {
+            analysis.identified_foods = [analysis.identified_foods];
+          }
+        }
+
+        setAnalysisResult(analysis);
       } else {
-        setError('Failed to analyze image');
+        setError(response.data.error || 'Failed to analyze image');
       }
     } catch (error) {
       console.error('Error analyzing food:', error);
@@ -347,10 +407,16 @@ function IdentifyFoodPage({ user }) {
               </h5>
             </div>
             <div className="card-body">
-              {analysis.identified_ingredients?.map((ingredient, index) => (
-                <span key={index} className="badge bg-primary me-2 mb-2">{ingredient}</span>
-              ))}
-              <p className="mt-3"><strong>Confidence:</strong> {analysis.confidence}</p>
+              {analysis.identified_ingredients && Array.isArray(analysis.identified_ingredients) && analysis.identified_ingredients.length > 0 ? (
+                analysis.identified_ingredients.map((ingredient, index) => (
+                  <span key={index} className="badge bg-primary me-2 mb-2">
+                    {ingredient || `Ingredient ${index + 1}`}
+                  </span>
+                ))
+              ) : (
+                <span className="text-muted">No ingredients identified</span>
+              )}
+              <p className="mt-3"><strong>Confidence:</strong> {analysis.confidence || 'Unknown'}</p>
             </div>
           </div>
 
@@ -399,67 +465,94 @@ function IdentifyFoodPage({ user }) {
               </h5>
             </div>
             <div className="card-body" style={{maxHeight: '600px', overflowY: 'auto'}}>
-              {analysis.recipes?.map((recipe, index) => (
-                <div key={index} className="recipe-item mb-4 p-3 border rounded">
-                  <h6 className="text-primary">
-                    <i className="fas fa-utensils me-2"></i>
-                    {recipe.name}
-                  </h6>
-                  <p className="text-muted">{recipe.description}</p>
-                  
-                  <div className="row mb-2">
-                    <div className="col-6">
-                      <small><strong>Prep Time:</strong> {recipe.prep_time}</small>
-                    </div>
-                    <div className="col-6">
-                      <small><strong>Difficulty:</strong> 
-                        <span className={`badge ms-1 ${
-                          recipe.difficulty === 'easy' ? 'bg-success' :
-                          recipe.difficulty === 'medium' ? 'bg-warning' : 'bg-danger'
-                        }`}>
-                          {recipe.difficulty}
-                        </span>
-                      </small>
-                    </div>
-                  </div>
-
-                  <div className="mb-2">
-                    <strong>Ingredients:</strong>
-                    <ul className="list-unstyled ms-3">
-                      {recipe.ingredients?.map((ing, idx) => (
-                        <li key={idx}>• {ing}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="mb-2">
-                    <strong>Instructions:</strong>
-                    <p className="ms-3">{recipe.instructions}</p>
-                  </div>
-
-                  {recipe.nutrition_per_serving && (
-                    <div className="mb-2">
-                      <strong>Nutrition per serving:</strong>
-                      <div className="row">
-                        <div className="col-6">
-                          <small>Calories: {recipe.nutrition_per_serving.calories}</small><br/>
-                          <small>Protein: {recipe.nutrition_per_serving.protein}g</small>
+              <RecipeErrorBoundary>
+                {analysis.recipes && Array.isArray(analysis.recipes) && analysis.recipes.length > 0 ? (
+                  analysis.recipes.map((recipe, index) => {
+                    // Safety check for recipe object
+                    if (!recipe || typeof recipe !== 'object') {
+                      return (
+                        <div key={index} className="alert alert-warning">
+                          <small>Recipe {index + 1}: Invalid recipe data received</small>
                         </div>
-                        <div className="col-6">
-                          <small>Carbs: {recipe.nutrition_per_serving.carbohydrates}g</small><br/>
-                          <small>Fat: {recipe.nutrition_per_serving.fat}g</small>
+                      );
+                    }
+
+                    return (
+                      <div key={index} className="recipe-item mb-4 p-3 border rounded">
+                        <h6 className="text-primary">
+                          <i className="fas fa-utensils me-2"></i>
+                          {recipe.name || `Recipe ${index + 1}`}
+                        </h6>
+                        {recipe.description && (
+                          <p className="text-muted">{recipe.description}</p>
+                        )}
+                        
+                        <div className="row mb-2">
+                          <div className="col-6">
+                            <small><strong>Prep Time:</strong> {recipe.prep_time || 'Not specified'}</small>
+                          </div>
+                          <div className="col-6">
+                            <small><strong>Difficulty:</strong> 
+                              <span className={`badge ms-1 ${
+                                recipe.difficulty === 'easy' ? 'bg-success' :
+                                recipe.difficulty === 'medium' ? 'bg-warning' : 
+                                recipe.difficulty === 'hard' ? 'bg-danger' : 'bg-secondary'
+                              }`}>
+                                {recipe.difficulty || 'Medium'}
+                              </span>
+                            </small>
+                          </div>
                         </div>
+
+                        {recipe.ingredients && Array.isArray(recipe.ingredients) && recipe.ingredients.length > 0 && (
+                          <div className="mb-2">
+                            <strong>Ingredients:</strong>
+                            <ul className="list-unstyled ms-3">
+                              {recipe.ingredients.map((ing, idx) => (
+                                <li key={idx}>• {ing}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {recipe.instructions && (
+                          <div className="mb-2">
+                            <strong>Instructions:</strong>
+                            <p className="ms-3">{recipe.instructions}</p>
+                          </div>
+                        )}
+
+                        {recipe.nutrition_per_serving && typeof recipe.nutrition_per_serving === 'object' && (
+                          <div className="mb-2">
+                            <strong>Nutrition per serving:</strong>
+                            <div className="row">
+                              <div className="col-6">
+                                <small>Calories: {recipe.nutrition_per_serving.calories || 'N/A'}</small><br/>
+                                <small>Protein: {recipe.nutrition_per_serving.protein || 'N/A'}g</small>
+                              </div>
+                              <div className="col-6">
+                                <small>Carbs: {recipe.nutrition_per_serving.carbohydrates || 'N/A'}g</small><br/>
+                                <small>Fat: {recipe.nutrition_per_serving.fat || 'N/A'}g</small>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {recipe.fitness_benefits && (
+                          <div className="alert alert-success py-2">
+                            <small><strong>Fitness Benefits:</strong> {recipe.fitness_benefits}</small>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
-
-                  {recipe.fitness_benefits && (
-                    <div className="alert alert-success py-2">
-                      <small><strong>Fitness Benefits:</strong> {recipe.fitness_benefits}</small>
-                    </div>
-                  )}
-                </div>
-              ))}
+                    );
+                  })
+                ) : (
+                  <div className="text-center text-muted py-3">
+                    <i className="fas fa-info-circle me-2"></i>
+                    No recipes available for these ingredients
+                  </div>
+                )}
+              </RecipeErrorBoundary>
             </div>
           </div>
         </div>

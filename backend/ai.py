@@ -1665,48 +1665,82 @@ def identify_food_from_image(image_path, analysis_type='food', fitness_goal='gen
             prompt = f"""
             Analyze the ingredient(s) in this image and suggest healthy recipes that can be made using them.
             
+            IMPORTANT: Even if you see multiple ingredients, analyze them collectively and provide recipes that use one or more of them.
+            
             User context:
             - Fitness goal: {fitness_goal}
             - Dietary restrictions: {dietary_restrictions if dietary_restrictions else 'None specified'}
             {f"- User's current food recommendations: {user_food_recommendations}" if user_food_recommendations else ""}
             
             Please provide:
-            1. Ingredient identification
-            2. At least 3 healthy recipe suggestions using these ingredients
-            3. Nutritional benefits of the ingredient
+            1. Ingredient identification (list all ingredients you can see)
+            2. At least 3 healthy recipe suggestions using these ingredients (recipes can use one or multiple ingredients)
+            3. Nutritional benefits of the ingredients
             4. How recipes align with user's fitness goals and food plan
+            
+            CRITICAL: Return ONLY valid JSON. Do not include any text before or after the JSON.
             
             Format as JSON:
             {{
-                "identified_ingredients": ["ingredient1", "ingredient2"],
+                "identified_ingredients": ["ingredient1", "ingredient2", "ingredient3"],
                 "ingredient_benefits": {{
-                    "nutritional_value": "key_nutritional_benefits",
-                    "health_properties": "health_benefits",
-                    "fitness_relevance": "how_it_supports_fitness_goals"
+                    "nutritional_value": "key nutritional benefits of the identified ingredients",
+                    "health_properties": "health benefits and properties",
+                    "fitness_relevance": "how these ingredients support the user's fitness goals"
                 }},
                 "recipes": [
                     {{
-                        "name": "recipe_name",
-                        "description": "brief_description",
-                        "ingredients": ["ingredient1", "additional_ingredient2"],
-                        "instructions": "step_by_step_cooking_instructions",
+                        "name": "Recipe Name 1",
+                        "description": "Brief description of the recipe",
+                        "ingredients": ["main_ingredient_from_image", "additional ingredient 1", "additional ingredient 2"],
+                        "instructions": "Clear step-by-step cooking instructions",
                         "nutrition_per_serving": {{
-                            "calories": estimated_calories,
-                            "protein": protein_grams,
-                            "carbohydrates": carb_grams,
-                            "fat": fat_grams
+                            "calories": 250,
+                            "protein": 15,
+                            "carbohydrates": 30,
+                            "fat": 8
                         }},
-                        "prep_time": "preparation_time",
-                        "difficulty": "easy/medium/hard",
-                        "fitness_benefits": "why_good_for_fitness_goal"
+                        "prep_time": "20 minutes",
+                        "difficulty": "easy",
+                        "fitness_benefits": "Why this recipe supports the user's fitness goal"
+                    }},
+                    {{
+                        "name": "Recipe Name 2",
+                        "description": "Brief description of the second recipe",
+                        "ingredients": ["ingredient_from_image", "complementary ingredient 1", "complementary ingredient 2"],
+                        "instructions": "Clear step-by-step cooking instructions",
+                        "nutrition_per_serving": {{
+                            "calories": 300,
+                            "protein": 20,
+                            "carbohydrates": 25,
+                            "fat": 12
+                        }},
+                        "prep_time": "30 minutes",
+                        "difficulty": "medium",
+                        "fitness_benefits": "Why this recipe supports the user's fitness goal"
+                    }},
+                    {{
+                        "name": "Recipe Name 3",
+                        "description": "Brief description of the third recipe",
+                        "ingredients": ["primary_ingredient", "supporting ingredient 1", "supporting ingredient 2"],
+                        "instructions": "Clear step-by-step cooking instructions",
+                        "nutrition_per_serving": {{
+                            "calories": 200,
+                            "protein": 12,
+                            "carbohydrates": 20,
+                            "fat": 6
+                        }},
+                        "prep_time": "15 minutes",
+                        "difficulty": "easy",
+                        "fitness_benefits": "Why this recipe supports the user's fitness goal"
                     }}
                 ],
-                "usage_tips": "tips_for_using_ingredient",
-                "storage_advice": "how_to_store_ingredient",
-                "confidence": "confidence_level_in_identification"
+                "usage_tips": "Practical tips for using these ingredients effectively",
+                "storage_advice": "How to properly store these ingredients",
+                "confidence": "High/Medium/Low - your confidence level in ingredient identification"
             }}
             
-            Provide at least 3 recipe suggestions that align with the user's fitness goals.
+            Ensure all recipe objects have all required fields. Use realistic nutritional values.
             """
         
         response = client.chat.completions.create(
@@ -1734,6 +1768,7 @@ def identify_food_from_image(image_path, analysis_type='food', fitness_goal='gen
         )
         
         response_text = response.choices[0].message.content
+        logging.info(f"AI Response for {analysis_type} analysis: {response_text[:500]}...")
         
         # Try to extract JSON from the response
         import re
@@ -1741,17 +1776,85 @@ def identify_food_from_image(image_path, analysis_type='food', fitness_goal='gen
         if json_match:
             try:
                 food_analysis = json.loads(json_match.group())
+                
+                # Validate and fix common issues with the response
+                if analysis_type == 'ingredient':
+                    # Ensure recipes is an array
+                    if 'recipes' not in food_analysis:
+                        food_analysis['recipes'] = []
+                    elif not isinstance(food_analysis['recipes'], list):
+                        food_analysis['recipes'] = []
+                    
+                    # Ensure identified_ingredients is an array
+                    if 'identified_ingredients' not in food_analysis:
+                        food_analysis['identified_ingredients'] = ["Unknown ingredient"]
+                    elif not isinstance(food_analysis['identified_ingredients'], list):
+                        food_analysis['identified_ingredients'] = [str(food_analysis['identified_ingredients'])]
+                    
+                    # Validate each recipe has required fields
+                    valid_recipes = []
+                    for recipe in food_analysis.get('recipes', []):
+                        if isinstance(recipe, dict):
+                            # Ensure required fields exist
+                            recipe.setdefault('name', 'Unnamed Recipe')
+                            recipe.setdefault('description', 'No description provided')
+                            recipe.setdefault('ingredients', [])
+                            recipe.setdefault('instructions', 'No instructions provided')
+                            recipe.setdefault('prep_time', 'Unknown')
+                            recipe.setdefault('difficulty', 'medium')
+                            recipe.setdefault('fitness_benefits', 'Supports healthy eating')
+                            
+                            # Ensure nutrition is an object
+                            if 'nutrition_per_serving' not in recipe or not isinstance(recipe['nutrition_per_serving'], dict):
+                                recipe['nutrition_per_serving'] = {
+                                    'calories': 'N/A',
+                                    'protein': 'N/A',
+                                    'carbohydrates': 'N/A',
+                                    'fat': 'N/A'
+                                }
+                            
+                            valid_recipes.append(recipe)
+                    
+                    food_analysis['recipes'] = valid_recipes
+                
+                elif analysis_type == 'food':
+                    # Ensure identified_foods is an array
+                    if 'identified_foods' not in food_analysis:
+                        food_analysis['identified_foods'] = ["Unknown food"]
+                    elif not isinstance(food_analysis['identified_foods'], list):
+                        food_analysis['identified_foods'] = [str(food_analysis['identified_foods'])]
+                
+                # Ensure confidence field exists
+                food_analysis.setdefault('confidence', 'Medium')
+                
                 return food_analysis
-            except json.JSONDecodeError:
-                pass
+                
+            except json.JSONDecodeError as e:
+                logging.error(f"JSON parsing error: {e}")
+                logging.error(f"Problematic JSON: {json_match.group()[:200]}...")
         
         # Fallback if JSON parsing fails
-        return {
-            "identified_foods": ["Unable to identify specific foods"],
-            "nutrition": {"calories": "Unknown", "note": "Could not analyze nutrition"},
-            "analysis": response_text,
-            "confidence": "Low - JSON parsing failed"
-        }
+        if analysis_type == 'ingredient':
+            return {
+                "identified_ingredients": ["Unable to identify ingredients"],
+                "recipes": [],
+                "ingredient_benefits": {
+                    "nutritional_value": "Analysis failed",
+                    "health_properties": "Unable to determine",
+                    "fitness_relevance": "Unknown"
+                },
+                "usage_tips": "Please try with a clearer image",
+                "storage_advice": "Standard storage recommendations apply",
+                "confidence": "Low - JSON parsing failed",
+                "raw_response": response_text
+            }
+        else:
+            return {
+                "identified_foods": ["Unable to identify specific foods"],
+                "nutrition": {"calories": "Unknown", "note": "Could not analyze nutrition"},
+                "analysis": response_text,
+                "confidence": "Low - JSON parsing failed"
+            }
         
     except Exception as e:
         logging.error(f"Error identifying food from image: {e}")

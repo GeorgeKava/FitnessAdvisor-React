@@ -7,6 +7,12 @@ frontend/.env
 .env.test.local
 .env.production.local
 
+diagrams/
+# Architecture diagrams (generated documentation)
+FitnessAdvisor_System_Architecture.md
+WeeklyPlan_Architecture.md
+VoiceChat_Architecture.md
+
 # Dependencies
 node_modules/
 frontend/node_modules/
