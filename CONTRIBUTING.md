@@ -1,13 +1,13 @@
-# Contributing to FitnessAdvisor
+# Contributing to FitFusion AI
 
-Thank you for your interest in contributing to FitnessAdvisor! This document provides guidelines for contributing to the project.
+Thank you for your interest in contributing to FitFusion AI! This document provides guidelines for contributing to the project.
 
 ## Development Setup
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/FitnessAdvisor-React.git
-   cd FitnessAdvisor-React
+   git clone https://github.com/yourusername/FitFusion-AI-React.git
+   cd FitFusion-AI-React
    ```
 
 2. **Backend Setup**

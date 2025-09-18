@@ -13,6 +13,10 @@ This implements true Agentic RAG as described by IBM:
 
 import os
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 import base64
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
@@ -81,11 +85,19 @@ class AgenticFitnessRAG:
         
         # Phase 0: Image Analysis (if images provided)
         image_analysis = ""
+        logger.info(f"🔍 Debug: Images parameter: {images}")
+        logger.info(f"🔍 Debug: Images type: {type(images)}")
+        logger.info(f"🔍 Debug: Images length: {len(images) if images else 'None'}")
+        
         if images and len(images) > 0:
             logger.info(f"📸 Analyzing {len(images)} images for visual insights: {images}")
-            image_analysis = await self._analyze_images(images, user_data)
-            logger.info(f"🔍 Image analysis completed: {len(image_analysis)} characters")
-            logger.info(f"📋 Image analysis preview: {image_analysis[:200]}...")
+            try:
+                image_analysis = await self._analyze_images(images, user_data)
+                logger.info(f"🔍 Image analysis completed: {len(image_analysis)} characters")
+                logger.info(f"📋 Image analysis preview: {image_analysis[:200]}...")
+            except Exception as e:
+                logger.error(f"❌ Image analysis failed: {e}")
+                logger.exception("Full traceback:")
         else:
             logger.info("❌ No images provided for analysis")
         # Phase 1: Goal Analysis & Strategic Planning
@@ -168,16 +180,30 @@ class AgenticFitnessRAG:
         try:
             # Encode images for analysis
             encoded_images = []
-            for img_path in images:
+            logger.info(f"🔍 Debug: Processing {len(images)} image paths")
+            
+            for i, img_path in enumerate(images):
+                logger.info(f"🔍 Debug: Image {i+1}: {img_path}")
+                logger.info(f"🔍 Debug: Image exists: {os.path.exists(img_path)}")
+                
                 if os.path.exists(img_path):
-                    with open(img_path, "rb") as img_file:
-                        encoded = base64.b64encode(img_file.read()).decode('utf-8')
-                        encoded_images.append({
-                            "filename": os.path.basename(img_path),
-                            "data": encoded
-                        })
+                    try:
+                        with open(img_path, "rb") as img_file:
+                            encoded = base64.b64encode(img_file.read()).decode('utf-8')
+                            encoded_images.append({
+                                "filename": os.path.basename(img_path),
+                                "data": encoded
+                            })
+                            logger.info(f"✅ Successfully encoded image {i+1}: {os.path.basename(img_path)}")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to encode image {img_path}: {e}")
+                else:
+                    logger.warning(f"⚠️ Image not found: {img_path}")
+            
+            logger.info(f"🔍 Debug: Successfully encoded {len(encoded_images)} images")
             
             if not encoded_images:
+                logger.warning("❌ No images successfully encoded")
                 return ""
             
             # Create comprehensive prompt for fitness analysis
@@ -205,6 +231,10 @@ Provide a comprehensive analysis that will be used to create a personalized fitn
 """
 
             # Call Azure OpenAI Vision API
+            logger.info(f"🤖 Calling Azure OpenAI Vision API with model: {os.getenv('AZURE_OPENAI_MODEL', 'gpt-4o')}")
+            logger.info(f"🔍 Debug: Using endpoint: {os.getenv('AZURE_OPENAI_API_ENDPOINT')}")
+            logger.info(f"🔍 Debug: Max tokens: {os.getenv('AGENTIC_RAG_MAX_TOKENS', '800')}")
+            
             response = self.ai_client.chat.completions.create(
                 model=os.getenv("AZURE_OPENAI_MODEL", "gpt-4o"),
                 messages=[
@@ -225,6 +255,8 @@ Provide a comprehensive analysis that will be used to create a personalized fitn
                 max_tokens=int(os.getenv("AGENTIC_RAG_MAX_TOKENS", "800")),
                 temperature=float(os.getenv("AI_TEMPERATURE", "0.7"))
             )
+            
+            logger.info("✅ Azure OpenAI Vision API call successful!")
             
             image_analysis = response.choices[0].message.content
             

@@ -293,6 +293,14 @@ function FitnessAdvisorPage({ user }) {
     formData.append('use_rag', useRAG.toString());
     formData.append('use_mcp', useMCP.toString());
     formData.append('use_hybrid', (useHybrid || (useRAG && useMCP)).toString());
+    
+    // Debug logging
+    console.log('FitnessAdvisorPage: Sending analysis mode parameters:', {
+      fastMode: fastMode.toString(),
+      useRAG: useRAG.toString(),
+      useMCP: useMCP.toString(),
+      useHybrid: (useHybrid || (useRAG && useMCP)).toString()
+    });
 
     try {
       const response = await axios.post('/api/fitness_recommendation', formData, {
@@ -413,6 +421,14 @@ function FitnessAdvisorPage({ user }) {
         formData.append('use_rag', useRAG.toString());
         formData.append('use_mcp', useMCP.toString());
         formData.append('use_hybrid', (useHybrid || (useRAG && useMCP)).toString());
+        
+        // Debug logging
+        console.log('FitnessAdvisorPage: Sending analysis mode parameters (camera):', {
+          fastMode: fastMode.toString(),
+          useRAG: useRAG.toString(),
+          useMCP: useMCP.toString(),
+          useHybrid: (useHybrid || (useRAG && useMCP)).toString()
+        });
 
         try {
           const response = await axios.post('/api/fitness_recommendation', formData, {
@@ -535,7 +551,7 @@ function FitnessAdvisorPage({ user }) {
 
   return (
     <div className="container">
-      <h2 className="mb-4">Your AI Personal Trainer</h2>
+      <h2 className="mb-4">FitFusion AI</h2>
 
       {/* Profile Status */}
       {profileLoaded && (

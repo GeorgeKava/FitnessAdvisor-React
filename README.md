@@ -1,4 +1,4 @@
-# 🏋️ FitnessAdvisor-React
+# �‍♂️ FitFusion AI
 
 A comprehensive AI-powered fitness application that provides personalized workout plans, nutrition guidance, real-time coaching, and progress tracking through advanced machine learning and voice interaction.
 
@@ -78,8 +78,8 @@ A comprehensive AI-powered fitness application that provides personalized workou
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/FitnessAdvisor-React.git
-cd FitnessAdvisor-React
+git clone https://github.com/yourusername/FitFusion-AI-React.git
+cd FitFusion-AI-React
 ```
 
 ### 2. Backend Setup
@@ -292,7 +292,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Support & Contact
 
 - **Issues**: Create an issue in this repository
-- **Email**: support@fitnessadvisor.app
+- **Email**: support@fitfusion-ai.app
 - **Documentation**: Full API documentation available in `/docs`
 
 ## 🚀 Recent Updates
@@ -314,13 +314,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Built with ❤️ for fitness enthusiasts worldwide**
 ```
-FitnessAdvisor-React/
+FitFusion-AI-React/
 ├── frontend/
 │   ├── public/
 │   │   └── index.html          # Bootstrap & Font Awesome integration
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── FitnessAdvisorPage.jsx    # Main recommendation interface
+│   │   │   ├── FitnessAdvisorPage.jsx    # Main AI recommendation interface
 │   │   │   ├── WeeklyPlanPage.jsx        # 7-day workout plan display
 │   │   │   ├── LoginPage.jsx             # User authentication
 │   │   │   ├── RegisterPage.jsx          # User registration
@@ -358,7 +358,7 @@ FitnessAdvisor-React/
 1. **Clone the Repository**:
    ```bash
    git clone <repository-url>
-   cd FitnessAdvisor-React
+   cd FitFusion-AI-React
    ```
 
 2. **Install Backend Dependencies**:

@@ -8,6 +8,10 @@ import json
 import asyncio
 import logging
 from typing import Dict, List, Any, Optional
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +147,7 @@ def get_fallback_fitness_recommendation(user_data, images):
                     azure_openai_client = AzureOpenAI(
                         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
                         api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview"),
-                        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+                        azure_endpoint=os.getenv("AZURE_OPENAI_API_ENDPOINT")
                     )
                 except Exception as e:
                     logger.warning(f"Azure OpenAI client not available: {e}")

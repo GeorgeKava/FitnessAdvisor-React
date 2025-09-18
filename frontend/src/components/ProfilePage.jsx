@@ -13,8 +13,6 @@ function ProfilePage({ user, onUpdateUser }) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
-  const [isSyncingToAzure, setIsSyncingToAzure] = useState(false);
-  const [azureStatus, setAzureStatus] = useState(null);
 
   const fitnessAgents = [
     { value: 'personal_trainer', label: 'Personal Trainer - General fitness guidance' },
@@ -176,50 +174,7 @@ function ProfilePage({ user, onUpdateUser }) {
     setMessage('');
   };
 
-  // Function to sync profile to the user_data index
-  const syncProfileToAzure = async () => {
-    if (!user?.email) return;
 
-    setIsSyncingToAzure(true);
-    
-    try {
-      const profileData = {
-        email: user.email,
-        name: formData.name,
-        age: parseInt(formData.age) || null,
-        weight: parseFloat(formData.weight) || null,
-        height: parseFloat(formData.height) || null,
-        gender: formData.gender,
-        fitnessLevel: formData.fitnessLevel,
-        agentType: formData.agentType,
-        goals: formData.goals.split(',').map(g => g.trim()).filter(g => g),
-        medicalConditions: formData.medicalConditions.split(',').map(m => m.trim()).filter(m => m),
-        preferredWorkoutTime: formData.preferredWorkoutTime,
-        equipmentAccess: formData.equipmentAccess.split(',').map(e => e.trim()).filter(e => e)
-      };
-
-      const response = await fetch(`http://localhost:5000/api/update-user-profile/${user.email}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(profileData),
-      });
-
-      if (response.ok) {
-        setAzureStatus({ type: 'success', message: 'Profile synced to user_data index successfully!' });
-      } else {
-        const errorData = await response.json();
-        setAzureStatus({ type: 'error', message: errorData.error || 'Failed to sync to user_data index' });
-      }
-    } catch (error) {
-      setAzureStatus({ type: 'error', message: 'Network error syncing to user_data index' });
-    } finally {
-      setIsSyncingToAzure(false);
-      // Clear status after 3 seconds
-      setTimeout(() => setAzureStatus(null), 3000);
-    }
-  };
 
   // Load profile from user_data index on component mount
   useEffect(() => {
@@ -234,8 +189,7 @@ function ProfilePage({ user, onUpdateUser }) {
               ...prevData,
               ...azureProfile
             }));
-            setAzureStatus({ type: 'success', message: 'Profile loaded from user_data index' });
-            setTimeout(() => setAzureStatus(null), 2000);
+
           }
         } catch (error) {
           console.log('Could not load profile from Azure, using localStorage');
@@ -248,13 +202,7 @@ function ProfilePage({ user, onUpdateUser }) {
 
   return (
     <div className="container mt-4">
-      {/* Azure Sync Status */}
-      {azureStatus && (
-        <div className={`alert alert-${azureStatus.type === 'success' ? 'success' : 'danger'} alert-dismissible fade show`}>
-          <i className={`fas fa-${azureStatus.type === 'success' ? 'check-circle' : 'exclamation-triangle'} me-2`}></i>
-          {azureStatus.message}
-        </div>
-      )}
+
 
       <div className="row justify-content-center">
         <div className="col-md-8 col-lg-6">
@@ -478,47 +426,7 @@ function ProfilePage({ user, onUpdateUser }) {
         </div>
       </div>
 
-      {/* Azure Sync Section */}
-      <div className="card mt-4">
-        <div className="card-header">
-          <h5>
-            <i className="fab fa-microsoft me-2"></i>
-            Azure Integration - user_data index
-          </h5>
-        </div>
-        <div className="card-body">
-          <p className="text-muted">
-            Your profile is stored in the Azure AI Search user_data index, enabling enhanced AI recommendations and voice chat functionality.
-          </p>
-          <div className="d-flex gap-2">
-            <button 
-              className="btn btn-outline-primary"
-              onClick={syncProfileToAzure}
-              disabled={isSyncingToAzure}
-            >
-              {isSyncingToAzure ? (
-                <>
-                  <span className="spinner-border spinner-border-sm me-2"></span>
-                  Syncing to user_data index...
-                </>
-              ) : (
-                <>
-                  <i className="fas fa-sync-alt me-2"></i>
-                  Sync to user_data index
-                </>
-              )}
-            </button>
-            
-            <button 
-              className="btn btn-outline-info"
-              onClick={() => window.open('https://portal.azure.com', '_blank')}
-            >
-              <i className="fas fa-external-link-alt me-2"></i>
-              View in Azure Portal
-            </button>
-          </div>
-        </div>
-      </div>
+
     </div>
   );
 }

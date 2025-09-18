@@ -5,9 +5,13 @@ function NavBar({ user, onLogout }) {
   return (
     <nav className="navbar navbar-expand-lg navbar-dark bg-dark">
       <div className="container">
-        <Link className="navbar-brand" to="/">
-          <i className="fas fa-dumbbell me-2"></i>
-          Your AI Personal Trainer
+        <Link className="navbar-brand d-flex align-items-center" to="/">
+          <img 
+            src="/logo.png" 
+            alt="FitFusion AI Logo" 
+            className="fitfusion-logo me-2"
+          />
+          FitFusion AI
         </Link>
         <button
           className="navbar-toggler"

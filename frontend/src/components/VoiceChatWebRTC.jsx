@@ -148,7 +148,7 @@ const VoiceChatWebRTC = ({ user }) => {
               type: "response.create",
               response: {
                 modalities: ["text", "audio"],
-                instructions: "Hello! I'm your AI Personal Trainer. I'm here to help you with fitness advice, workout plans, and answer any health and fitness related questions. How can I assist you with your fitness journey today?",
+                instructions: "Hello! I'm FitFusion AI. I'm here to help you with fitness advice, workout plans, and answer any health and fitness related questions. How can I assist you with your fitness journey today?",
                 max_output_tokens: 150
               }
             };

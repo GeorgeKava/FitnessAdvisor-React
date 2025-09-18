@@ -120,3 +120,4 @@ backend/test_function_calls.py
 backend/test_handlers.py
 backend/test_plan.py
 backend/test_profile_data.py
+backend/test_azure_openai.py

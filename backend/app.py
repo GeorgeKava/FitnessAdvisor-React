@@ -125,6 +125,9 @@ def fitness_recommendation():
         elif use_hybrid or (use_rag and use_mcp):
             # Use Hybrid RAG + MCP for ultimate recommendations
             logging.info("Using Hybrid RAG + MCP mode for comprehensive recommendation")
+            logging.info(f"🖼️ Images being passed to hybrid function: {images} (count: {len(images)})")
+            for i, img_path in enumerate(images):
+                logging.info(f"  Image {i+1}: {img_path} (exists: {os.path.exists(img_path)})")
             user_data = {
                 'gender': gender,
                 'age': age,

@@ -153,13 +153,20 @@ function RegisterPage({ onLogin }) {
       <div className="row justify-content-center">
         <div className="col-md-8">
           <div className="card">
-            <div className="card-header">
-              <h3 className="text-center">
+            <div className="card-header text-center">
+              <div className="logo-container">
+                <img 
+                  src="/logo.png" 
+                  alt="FitFusion AI Logo" 
+                  className="fitfusion-logo-medium mb-2"
+                />
+              </div>
+              <h3 className="mb-2">
                 <i className="fas fa-user-plus me-2"></i>
                 Create Your Account
               </h3>
-              <p className="text-center text-muted mb-0">
-                Join your AI Personal Trainer and start your fitness journey
+              <p className="text-muted mb-0">
+                Join FitFusion AI and start your fitness journey
               </p>
             </div>
             <div className="card-body">

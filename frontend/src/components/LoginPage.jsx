@@ -65,7 +65,14 @@ const LoginPage = ({ onLogin }) => {
         <div className="col-md-6 col-lg-4">
           <div className="card shadow">
             <div className="card-body p-5">
-              <h2 className="text-center mb-4">Login to Your AI Personal Trainer</h2>
+              <div className="text-center logo-container">
+                <img 
+                  src="/logo.png" 
+                  alt="FitFusion AI Logo" 
+                  className="fitfusion-logo-large mb-2"
+                />
+                <h2 className="mb-3">Login to FitFusion AI</h2>
+              </div>
               
               {error && (
                 <div className="alert alert-danger" role="alert">
