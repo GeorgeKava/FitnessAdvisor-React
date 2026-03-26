@@ -42,6 +42,10 @@ if not os.path.exists(capture_folder):
     os.makedirs(capture_folder)
     logging.info(f"Created capture_folder: {capture_folder}")
 
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "healthy"}), 200
+
 @app.route('/api/fitness_recommendation', methods=['POST'])
 def fitness_recommendation():
     logging.info("--- Fitness Recommendation Endpoint Hit ---")
