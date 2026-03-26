@@ -14,7 +14,17 @@ from mcp_client import (get_fitness_recommendation_mcp, get_fitness_recommendati
 from voice_chat import voice_chat_bp, store_user_data_in_azure_search, store_weekly_plan_in_azure_search, store_food_recommendations_in_azure_search
 
 app = Flask(__name__)
-CORS(app)
+# Update CORS to allow mobile device connections
+CORS(app, origins=[
+    "http://localhost:3000",
+    "http://127.0.0.1:3000", 
+    "capacitor://localhost",
+    "http://localhost",
+    "http://192.168.1.101:8081",  # Your device IP
+    "http://192.168.1.0/24",      # Your network range
+    "*"  # Allow all origins in development (remove in production)
+])
+
 # Initialize camera instance if needed for other parts, but not for frontend capture processing
 # camera = cv2.VideoCapture(0) 
 capture_folder = 'captured_images'
