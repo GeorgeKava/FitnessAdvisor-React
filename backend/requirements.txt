@@ -7,7 +7,7 @@ werkzeug==2.3.7
 azure-search-documents==11.6.0
 azure-identity==1.17.1
 azure-core==1.32.0
-openai==1.17.0
+openai==1.68.2
 
 # Image Processing
 pillow==11.1.0
