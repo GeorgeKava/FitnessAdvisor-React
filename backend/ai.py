@@ -50,13 +50,13 @@ env_file_path = '.env'
 client = AzureOpenAI(
     api_key=api_key,
     api_version=api_version,
-    base_url=f"{azure_endpoint}/openai/deployments/{model}",
+    azure_endpoint=azure_endpoint,
 )
 
 embedding_client = AzureOpenAI(
     api_key=api_key,
     api_version=api_version,
-    base_url=f"{azure_endpoint}/openai/deployments/{embedding_model}",
+    azure_endpoint=azure_endpoint,
 )
 
 search_client = None
@@ -1763,75 +1763,77 @@ def identify_food_from_image(image_path, analysis_type='food', fitness_goal='gen
                     ]
                 }
             ],
-            max_tokens=1500,
+            max_tokens=2500,
             temperature=0.3
         )
         
         response_text = response.choices[0].message.content
         logging.info(f"AI Response for {analysis_type} analysis: {response_text[:500]}...")
         
-        # Try to extract JSON from the response
-        import re
-        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-        if json_match:
-            try:
-                food_analysis = json.loads(json_match.group())
+        # Try to parse JSON from the response
+        food_analysis = None
+        try:
+            food_analysis = json.loads(response_text)
+        except json.JSONDecodeError:
+            import re
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                try:
+                    food_analysis = json.loads(json_match.group())
+                except json.JSONDecodeError as e:
+                    logging.error(f"JSON parsing error: {e}")
+                    logging.error(f"Response text: {response_text[:500]}...")
+        
+        if food_analysis:
+            # Validate and fix common issues with the response
+            if analysis_type == 'ingredient':
+                # Ensure recipes is an array
+                if 'recipes' not in food_analysis:
+                    food_analysis['recipes'] = []
+                elif not isinstance(food_analysis['recipes'], list):
+                    food_analysis['recipes'] = []
                 
-                # Validate and fix common issues with the response
-                if analysis_type == 'ingredient':
-                    # Ensure recipes is an array
-                    if 'recipes' not in food_analysis:
-                        food_analysis['recipes'] = []
-                    elif not isinstance(food_analysis['recipes'], list):
-                        food_analysis['recipes'] = []
-                    
-                    # Ensure identified_ingredients is an array
-                    if 'identified_ingredients' not in food_analysis:
-                        food_analysis['identified_ingredients'] = ["Unknown ingredient"]
-                    elif not isinstance(food_analysis['identified_ingredients'], list):
-                        food_analysis['identified_ingredients'] = [str(food_analysis['identified_ingredients'])]
-                    
-                    # Validate each recipe has required fields
-                    valid_recipes = []
-                    for recipe in food_analysis.get('recipes', []):
-                        if isinstance(recipe, dict):
-                            # Ensure required fields exist
-                            recipe.setdefault('name', 'Unnamed Recipe')
-                            recipe.setdefault('description', 'No description provided')
-                            recipe.setdefault('ingredients', [])
-                            recipe.setdefault('instructions', 'No instructions provided')
-                            recipe.setdefault('prep_time', 'Unknown')
-                            recipe.setdefault('difficulty', 'medium')
-                            recipe.setdefault('fitness_benefits', 'Supports healthy eating')
-                            
-                            # Ensure nutrition is an object
-                            if 'nutrition_per_serving' not in recipe or not isinstance(recipe['nutrition_per_serving'], dict):
-                                recipe['nutrition_per_serving'] = {
-                                    'calories': 'N/A',
-                                    'protein': 'N/A',
-                                    'carbohydrates': 'N/A',
-                                    'fat': 'N/A'
-                                }
-                            
-                            valid_recipes.append(recipe)
-                    
-                    food_analysis['recipes'] = valid_recipes
+                # Ensure identified_ingredients is an array
+                if 'identified_ingredients' not in food_analysis:
+                    food_analysis['identified_ingredients'] = ["Unknown ingredient"]
+                elif not isinstance(food_analysis['identified_ingredients'], list):
+                    food_analysis['identified_ingredients'] = [str(food_analysis['identified_ingredients'])]
                 
-                elif analysis_type == 'food':
-                    # Ensure identified_foods is an array
-                    if 'identified_foods' not in food_analysis:
-                        food_analysis['identified_foods'] = ["Unknown food"]
-                    elif not isinstance(food_analysis['identified_foods'], list):
-                        food_analysis['identified_foods'] = [str(food_analysis['identified_foods'])]
+                # Validate each recipe has required fields
+                valid_recipes = []
+                for recipe in food_analysis.get('recipes', []):
+                    if isinstance(recipe, dict):
+                        recipe.setdefault('name', 'Unnamed Recipe')
+                        recipe.setdefault('description', 'No description provided')
+                        recipe.setdefault('ingredients', [])
+                        recipe.setdefault('instructions', 'No instructions provided')
+                        recipe.setdefault('prep_time', 'Unknown')
+                        recipe.setdefault('difficulty', 'medium')
+                        recipe.setdefault('fitness_benefits', 'Supports healthy eating')
+                        
+                        if 'nutrition_per_serving' not in recipe or not isinstance(recipe['nutrition_per_serving'], dict):
+                            recipe['nutrition_per_serving'] = {
+                                'calories': 'N/A',
+                                'protein': 'N/A',
+                                'carbohydrates': 'N/A',
+                                'fat': 'N/A'
+                            }
+                        
+                        valid_recipes.append(recipe)
                 
-                # Ensure confidence field exists
-                food_analysis.setdefault('confidence', 'Medium')
-                
-                return food_analysis
-                
-            except json.JSONDecodeError as e:
-                logging.error(f"JSON parsing error: {e}")
-                logging.error(f"Problematic JSON: {json_match.group()[:200]}...")
+                food_analysis['recipes'] = valid_recipes
+            
+            elif analysis_type == 'food':
+                # Ensure identified_foods is an array
+                if 'identified_foods' not in food_analysis:
+                    food_analysis['identified_foods'] = ["Unknown food"]
+                elif not isinstance(food_analysis['identified_foods'], list):
+                    food_analysis['identified_foods'] = [str(food_analysis['identified_foods'])]
+            
+            # Ensure confidence field exists
+            food_analysis.setdefault('confidence', 'Medium')
+            
+            return food_analysis
         
         # Fallback if JSON parsing fails
         if analysis_type == 'ingredient':

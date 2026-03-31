@@ -15,7 +15,7 @@ model = os.getenv('AZURE_OPENAI_MODEL')
 client = AzureOpenAI(
     api_key=api_key,
     api_version=api_version,
-    base_url=f"{azure_endpoint}/openai/deployments/{model}",
+    azure_endpoint=azure_endpoint,
 )
 
 def get_fast_fitness_recommendation(image_paths, gender, age, weight, height=None, agent_type="general", health_conditions=""):
