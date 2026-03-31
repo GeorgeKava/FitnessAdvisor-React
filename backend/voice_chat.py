@@ -9,8 +9,7 @@ import requests
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient  # Missing import
 from azure.core.credentials import AzureKeyCredential
-from azure.core.exceptions import ResourceNotFoundError  # Missing import
-from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.core.exceptions import ResourceNotFoundError
 import openai
 from mcp_client import get_fitness_recommendation_with_rag_sync
 from dotenv import load_dotenv
