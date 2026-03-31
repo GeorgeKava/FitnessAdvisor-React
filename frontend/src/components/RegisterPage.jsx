@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import API_BASE_URL from '../config';
 
 function RegisterPage({ onLogin }) {
   const [formData, setFormData] = useState({
@@ -106,7 +107,7 @@ function RegisterPage({ onLogin }) {
       
       // Store in Azure user_data index (following Azure best practices)
       try {
-        const response = await fetch('http://localhost:5000/api/create-user-profile', {
+        const response = await fetch(`${API_BASE_URL}/api/create-user-profile`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

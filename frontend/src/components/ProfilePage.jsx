@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import API_BASE_URL from '../config';
 
 function ProfilePage({ user, onUpdateUser }) {
   const [formData, setFormData] = useState({
@@ -181,7 +182,7 @@ function ProfilePage({ user, onUpdateUser }) {
     const loadProfileFromAzure = async () => {
       if (user?.email) {
         try {
-          const response = await fetch(`http://localhost:5000/api/get-user-profile/${user.email}`);
+          const response = await fetch(`${API_BASE_URL}/api/get-user-profile/${user.email}`);
           if (response.ok) {
             const azureProfile = await response.json();
             // Update formData with Azure profile data if available

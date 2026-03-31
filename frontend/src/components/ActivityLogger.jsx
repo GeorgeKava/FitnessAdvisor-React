@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Button, Form, Row, Col, Alert } from 'react-bootstrap';
+import API_BASE_URL from '../config';
 
 const ActivityLogger = ({ show, onHide, onSave, date, user }) => {
   // Default values for the form
@@ -62,7 +63,7 @@ const ActivityLogger = ({ show, onHide, onSave, date, user }) => {
     try {
       // Get today's exercises from weekly plan via API
       try {
-        const response = await fetch(`http://localhost:5000/api/get-weekly-plan?user_email=${encodeURIComponent(user.email)}`);
+        const response = await fetch(`${API_BASE_URL}/api/get-weekly-plan?user_email=${encodeURIComponent(user.email)}`);
         const data = await response.json();
         
         if (data.success && data.weekly_plan) {

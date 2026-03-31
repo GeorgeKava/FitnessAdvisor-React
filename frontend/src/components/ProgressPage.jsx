@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import API_BASE_URL from '../config';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, ArcElement } from 'chart.js';
 import { Line, Bar, Pie } from 'react-chartjs-2';
 import ActivityLogger from './ActivityLogger';
@@ -68,7 +69,7 @@ const ProgressPage = ({ user }) => {
       // Load weekly plans from Azure Search via API
       let parsedWeeklyPlan = null;
       try {
-        const response = await fetch(`http://localhost:5000/api/get-weekly-plan?user_email=${encodeURIComponent(user.email)}`);
+        const response = await fetch(`${API_BASE_URL}/api/get-weekly-plan?user_email=${encodeURIComponent(user.email)}`);
         const data = await response.json();
         
         if (data.success && data.weekly_plan) {

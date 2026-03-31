@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../config';
 
 // Error Boundary Component to catch rendering errors
 class RecipeErrorBoundary extends React.Component {
@@ -214,7 +215,7 @@ function IdentifyFoodPage({ user }) {
         formData.append('dietary_restrictions', userProfile.dietaryRestrictions || '');
       }
 
-      const response = await axios.post('http://localhost:5000/api/identify_food', formData, {
+      const response = await axios.post(`${API_BASE_URL}/api/identify_food`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
